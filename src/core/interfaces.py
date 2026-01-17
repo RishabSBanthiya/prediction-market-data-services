@@ -10,7 +10,7 @@ class IMarketDiscovery(ABC):
         pass
 
     @abstractmethod
-    async def get_market_details(self, condition_id: str) -> Optional[Market]:
+    async def get_market_details(self, condition_id: str) -> list[Market]:
         pass
 
     @abstractmethod

@@ -41,9 +41,8 @@ class PolymarketDiscoveryService(IMarketDiscovery):
             markets.extend(found)
 
         for condition_id in parsed.condition_ids:
-            market = await self.get_market_details(condition_id)
-            if market:
-                markets.append(market)
+            found = await self.get_market_details(condition_id)
+            markets.extend(found)
 
         if parsed.slug_patterns:
             markets = self._filter_by_slug(markets, parsed.slug_patterns)
@@ -58,20 +57,21 @@ class PolymarketDiscoveryService(IMarketDiscovery):
                 unique.append(m)
         return unique
 
-    async def get_market_details(self, condition_id: str) -> Optional[Market]:
+    async def get_market_details(self, condition_id: str) -> list[Market]:
+        """Get market details, returning a Market for each token ID."""
         session = await self._get_session()
         url = f"{self.GAMMA_BASE_URL}/markets"
         params = {"condition_id": condition_id}
         try:
             async with session.get(url, params=params) as resp:
                 if resp.status != 200:
-                    return None
+                    return []
                 data = await resp.json()
                 if data:
                     return self._parse_market(data[0])
         except Exception as e:
             self._logger.error("get_market_details_failed", error=str(e))
-        return None
+        return []
 
     async def _fetch_by_series(self, series_id: str) -> list[Market]:
         session = await self._get_session()
@@ -106,36 +106,72 @@ class PolymarketDiscoveryService(IMarketDiscovery):
         markets = []
         for event in events:
             for market_data in event.get("markets", []):
-                markets.append(self._parse_market(market_data, event))
+                markets.extend(self._parse_market(market_data, event))
         return markets
 
-    def _parse_market(self, data: dict, event: dict = None) -> Market:
+    def _parse_market(self, data: dict, event: dict = None) -> list[Market]:
+        """Parse market data and return a Market for each token ID (outcome)."""
         clob_ids_raw = data.get("clobTokenIds") or []
         if isinstance(clob_ids_raw, str):
             clob_ids = json.loads(clob_ids_raw) if clob_ids_raw else []
         else:
             clob_ids = clob_ids_raw
-        token_id = clob_ids[0] if clob_ids else ""
-        return Market(
-            condition_id=data.get("conditionId", ""),
-            token_id=token_id,
-            market_slug=data.get("slug"),
-            event_slug=event.get("slug") if event else None,
-            question=data.get("question"),
-            outcome=data.get("outcome"),
-            outcome_index=data.get("outcomeIndex"),
-            event_id=str(event.get("id")) if event else None,
-            event_title=event.get("title") if event else None,
-            category=data.get("category"),
-            subcategory=data.get("subcategory"),
-            series_id=data.get("seriesId"),
-            tags=data.get("tags"),
-            description=data.get("description"),
-            volume=float(data.get("volume") or 0),
-            liquidity=float(data.get("liquidity") or 0),
-            is_active=data.get("active", True),
-            is_closed=data.get("closed", False),
-        )
+
+        # Parse outcomes to associate with tokens
+        outcomes_raw = data.get("outcomes") or "[]"
+        if isinstance(outcomes_raw, str):
+            outcomes = json.loads(outcomes_raw) if outcomes_raw else []
+        else:
+            outcomes = outcomes_raw
+
+        markets = []
+        for i, token_id in enumerate(clob_ids):
+            outcome = outcomes[i] if i < len(outcomes) else None
+            markets.append(Market(
+                condition_id=data.get("conditionId", ""),
+                token_id=token_id,
+                market_slug=data.get("slug"),
+                event_slug=event.get("slug") if event else None,
+                question=data.get("question"),
+                outcome=outcome,
+                outcome_index=i,
+                event_id=str(event.get("id")) if event else None,
+                event_title=event.get("title") if event else None,
+                category=data.get("category"),
+                subcategory=data.get("subcategory"),
+                series_id=data.get("seriesId"),
+                tags=data.get("tags"),
+                description=data.get("description"),
+                volume=float(data.get("volume") or 0),
+                liquidity=float(data.get("liquidity") or 0),
+                is_active=data.get("active", True),
+                is_closed=data.get("closed", False),
+            ))
+
+        # Return at least one market even if no token IDs
+        if not markets:
+            markets.append(Market(
+                condition_id=data.get("conditionId", ""),
+                token_id="",
+                market_slug=data.get("slug"),
+                event_slug=event.get("slug") if event else None,
+                question=data.get("question"),
+                outcome=data.get("outcome"),
+                outcome_index=data.get("outcomeIndex"),
+                event_id=str(event.get("id")) if event else None,
+                event_title=event.get("title") if event else None,
+                category=data.get("category"),
+                subcategory=data.get("subcategory"),
+                series_id=data.get("seriesId"),
+                tags=data.get("tags"),
+                description=data.get("description"),
+                volume=float(data.get("volume") or 0),
+                liquidity=float(data.get("liquidity") or 0),
+                is_active=data.get("active", True),
+                is_closed=data.get("closed", False),
+            ))
+
+        return markets
 
     def _filter_by_slug(self, markets: list[Market], patterns: list[str]) -> list[Market]:
         filtered = []
