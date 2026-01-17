@@ -17,6 +17,7 @@ def seed_nba_listener():
             "series_ids": ["10345"],
         },
         "discovery_interval_seconds": 60,
+        "enable_forward_fill": False,  # Only store real events
         "is_active": True,
     }
 

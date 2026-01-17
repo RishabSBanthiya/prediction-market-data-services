@@ -19,6 +19,7 @@ class ListenerConfig(BaseModel):
     filters: ListenerFilters
     discovery_interval_seconds: int = 60
     emit_interval_ms: int = 100  # Forward-fill emission interval (milliseconds)
+    enable_forward_fill: bool = False  # Set to True to emit forward-filled snapshots
     is_active: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

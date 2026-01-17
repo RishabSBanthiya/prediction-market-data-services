@@ -26,7 +26,8 @@ class SupabaseConfigLoader:
             description=row.get("description"),
             filters=ListenerFilters(**filters_data),
             discovery_interval_seconds=row.get("discovery_interval_seconds", 60),
-            emit_interval_ms=row.get("emit_interval_ms", 100),  # Default 100ms
+            emit_interval_ms=row.get("emit_interval_ms", 100),
+            enable_forward_fill=row.get("enable_forward_fill", False),
             is_active=row.get("is_active", True),
             created_at=self._parse_datetime(row.get("created_at")),
             updated_at=self._parse_datetime(row.get("updated_at")),

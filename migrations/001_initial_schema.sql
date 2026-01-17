@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS listeners (
     description TEXT,
     filters JSONB NOT NULL DEFAULT '{}',
     discovery_interval_seconds INTEGER NOT NULL DEFAULT 60,
-    emit_interval_ms INTEGER NOT NULL DEFAULT 100,  -- Forward-fill emission interval (milliseconds)
+    emit_interval_ms INTEGER NOT NULL DEFAULT 100,
+    enable_forward_fill BOOLEAN DEFAULT false,  -- Set to true to emit forward-filled snapshots
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()

@@ -20,11 +20,13 @@ class ListenerFactory:
             listener_id=config.id,
             logger=logger,
         )
-        forward_filler = StateForwardFiller(
-            listener_id=config.id,
-            logger=logger,
-            emit_interval_ms=config.emit_interval_ms,
-        )
+        forward_filler = None
+        if config.enable_forward_fill:
+            forward_filler = StateForwardFiller(
+                listener_id=config.id,
+                logger=logger,
+                emit_interval_ms=config.emit_interval_ms,
+            )
         return Listener(
             config=config,
             discovery=discovery,
