@@ -42,6 +42,14 @@ class IWebSocketClient(ABC):
 
 class IDataWriter(ABC):
     @abstractmethod
+    async def start(self) -> None:
+        pass
+
+    @abstractmethod
+    async def stop(self) -> None:
+        pass
+
+    @abstractmethod
     async def write_orderbook(self, snapshot: OrderbookSnapshot) -> None:
         pass
 

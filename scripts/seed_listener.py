@@ -12,9 +12,9 @@ def seed_nba_listener():
 
     listener_data = {
         "name": "nba-listener",
-        "description": "Tracks NBA sports betting markets",
+        "description": "Tracks NBA basketball markets",
         "filters": {
-            "tag_ids": [100639],
+            "series_ids": ["10345"],
         },
         "discovery_interval_seconds": 60,
         "is_active": True,

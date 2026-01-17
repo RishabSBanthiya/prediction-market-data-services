@@ -81,17 +81,40 @@ class PolymarketWebSocketClient(IWebSocketClient):
         await self._ws.send(json.dumps(msg))
 
     async def _receive_loop(self) -> None:
+        self._logger.info("receive_loop_started")
+        msg_count = 0
         while self._running and self._ws:
             try:
-                message = await self._ws.recv()
-                data = json.loads(message)
-                await self._message_queue.put(data)
+                # Use iter_messages() which handles the async iteration properly
+                async for message in self._ws:
+                    if not self._running:
+                        break
+                    msg_count += 1
+                    if msg_count <= 5 or msg_count % 50 == 0:
+                        self._logger.info("websocket_raw_message", count=msg_count, length=len(message) if message else 0)
+                    # Skip empty messages
+                    if not message or not message.strip():
+                        continue
+                    try:
+                        data = json.loads(message)
+                        if isinstance(data, list):
+                            for item in data:
+                                if isinstance(item, dict) and item.get("event_type"):
+                                    self._logger.info("websocket_event_received", event_type=item.get("event_type"))
+                                    await self._message_queue.put(item)
+                        elif isinstance(data, dict) and data.get("event_type"):
+                            self._logger.info("websocket_event_received", event_type=data.get("event_type"))
+                            await self._message_queue.put(data)
+                    except json.JSONDecodeError:
+                        # Server sometimes sends non-JSON acknowledgments, ignore them
+                        pass
             except websockets.ConnectionClosed as e:
                 self._logger.warning("websocket_connection_closed", code=e.code)
                 await self._connection_manager.handle_disconnect()
                 break
             except Exception as e:
                 self._logger.error("websocket_receive_error", error=str(e))
+                await asyncio.sleep(1)  # Brief pause before retrying
 
     async def _ping_loop(self) -> None:
         while self._running and self._ws:

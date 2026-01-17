@@ -2,6 +2,7 @@ from core.listener import Listener
 from services.market_discovery import PolymarketDiscoveryService
 from services.websocket_client import PolymarketWebSocketClient
 from services.supabase_writer import SupabaseWriter
+from services.state_forward_filler import StateForwardFiller
 from models import ListenerConfig
 
 
@@ -19,10 +20,16 @@ class ListenerFactory:
             listener_id=config.id,
             logger=logger,
         )
+        forward_filler = StateForwardFiller(
+            listener_id=config.id,
+            logger=logger,
+            emit_interval_ms=config.emit_interval_ms,
+        )
         return Listener(
             config=config,
             discovery=discovery,
             websocket=websocket,
             writer=writer,
             logger=logger,
+            forward_filler=forward_filler,
         )

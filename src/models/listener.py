@@ -18,6 +18,7 @@ class ListenerConfig(BaseModel):
     description: Optional[str] = None
     filters: ListenerFilters
     discovery_interval_seconds: int = 60
+    emit_interval_ms: int = 100  # Forward-fill emission interval (milliseconds)
     is_active: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

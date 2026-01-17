@@ -15,7 +15,7 @@ class OrderbookSnapshot(BaseModel):
     bids: list[OrderLevel]
     asks: list[OrderLevel]
     hash: Optional[str] = None
-    raw_payload: dict
+    raw_payload: Optional[dict] = None
 
     best_bid: Optional[float] = None
     best_ask: Optional[float] = None
@@ -23,6 +23,10 @@ class OrderbookSnapshot(BaseModel):
     mid_price: Optional[float] = None
     bid_depth: Optional[float] = None
     ask_depth: Optional[float] = None
+
+    # Forward-fill metadata
+    is_forward_filled: bool = False  # True if this is a forward-filled copy
+    source_timestamp: Optional[int] = None  # Original event timestamp if forward-filled
 
     def compute_metrics(self) -> None:
         if self.bids:

@@ -4,8 +4,6 @@ from .events import (
     MarketClosedEvent, ConnectionLostEvent, ShutdownEvent, ListenerEvent
 )
 from .listener import Listener, ListenerState
-from .listener_factory import ListenerFactory
-from .listener_manager import ListenerManager
 
 __all__ = [
     "IMarketDiscovery",
@@ -21,6 +19,4 @@ __all__ = [
     "ListenerEvent",
     "Listener",
     "ListenerState",
-    "ListenerFactory",
-    "ListenerManager",
 ]

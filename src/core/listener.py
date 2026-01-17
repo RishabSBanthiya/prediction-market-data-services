@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from core.interfaces import IMarketDiscovery, IWebSocketClient, IDataWriter
 from core.events import (
@@ -8,6 +8,9 @@ from core.events import (
     MarketClosedEvent, ShutdownEvent, ListenerEvent
 )
 from models import ListenerConfig, Market, MarketState, OrderbookSnapshot, OrderLevel, Trade
+
+if TYPE_CHECKING:
+    from services.state_forward_filler import StateForwardFiller
 
 
 class ListenerState:
@@ -17,6 +20,7 @@ class ListenerState:
         self.last_discovery_at: Optional[datetime] = None
         self.events_processed: int = 0
         self.errors_count: int = 0
+        self.snapshots_forward_filled: int = 0  # Track forward-filled snapshots
 
 
 class Listener:
@@ -27,17 +31,26 @@ class Listener:
         websocket: IWebSocketClient,
         writer: IDataWriter,
         logger,
+        forward_filler: Optional["StateForwardFiller"] = None,
     ):
         self._config = config
         self._discovery = discovery
         self._websocket = websocket
         self._writer = writer
         self._logger = logger
+        self._forward_filler = forward_filler
         self._state = ListenerState()
-        self._event_queue: asyncio.Queue[ListenerEvent] = asyncio.Queue()
+        # High-priority queue for orderbook/trade data (processed first)
+        self._data_queue: asyncio.Queue[ListenerEvent] = asyncio.Queue()
+        # Low-priority queue for discovery/lifecycle events
+        self._control_queue: asyncio.Queue[ListenerEvent] = asyncio.Queue()
         self._discovery_task: Optional[asyncio.Task] = None
         self._processor_task: Optional[asyncio.Task] = None
         self._websocket_task: Optional[asyncio.Task] = None
+
+        # Set up forward filler callback if provided
+        if self._forward_filler:
+            self._forward_filler.set_snapshot_callback(self._handle_forward_filled_snapshot)
 
     @property
     def config(self) -> ListenerConfig:
@@ -51,9 +64,17 @@ class Listener:
     def listener_id(self) -> str:
         return self._config.id
 
+    @property
+    def _event_queue(self) -> asyncio.Queue[ListenerEvent]:
+        """For backward compatibility with tests - returns control queue."""
+        return self._control_queue
+
     async def start(self) -> None:
         self._logger.info("listener_starting", name=self._config.name)
         self._state.is_running = True
+        await self._writer.start()
+        if self._forward_filler:
+            await self._forward_filler.start()
         self._discovery_task = asyncio.create_task(self._run_discovery_loop())
         self._processor_task = asyncio.create_task(self._run_event_processor())
         self._websocket_task = asyncio.create_task(self._run_websocket_listener())
@@ -61,13 +82,15 @@ class Listener:
     async def stop(self) -> None:
         self._logger.info("listener_stopping", name=self._config.name)
         self._state.is_running = False
-        await self._event_queue.put(ShutdownEvent())
+        await self._control_queue.put(ShutdownEvent())
         for task in [self._discovery_task, self._processor_task, self._websocket_task]:
             if task:
                 task.cancel()
+        if self._forward_filler:
+            await self._forward_filler.stop()
         await self._websocket.disconnect()
         await self._discovery.close()
-        await self._writer.flush()
+        await self._writer.stop()
 
     async def _run_discovery_loop(self) -> None:
         while self._state.is_running:
@@ -91,11 +114,11 @@ class Listener:
         for token_id in new_tokens:
             market = discovered_by_token[token_id]
             market.listener_id = self.listener_id
-            await self._event_queue.put(MarketDiscoveredEvent(market=market))
+            await self._control_queue.put(MarketDiscoveredEvent(market=market))
 
         for token_id in removed_tokens:
             market = self._state.subscribed_markets[token_id]
-            await self._event_queue.put(MarketClosedEvent(market=market, new_state=MarketState.CLOSED.value))
+            await self._control_queue.put(MarketClosedEvent(market=market, new_state=MarketState.CLOSED.value))
 
     async def _run_websocket_listener(self) -> None:
         await self._websocket.connect()
@@ -104,7 +127,12 @@ class Listener:
                 break
             event = self._parse_websocket_event(raw_event)
             if event:
-                await self._event_queue.put(event)
+                # Data events go to high-priority queue
+                if isinstance(event, OrderbookEvent):
+                    self._logger.info("orderbook_event_queued", asset_id=event.data.asset_id[:20])
+                elif isinstance(event, TradeEvent):
+                    self._logger.info("trade_event_queued", asset_id=event.data.asset_id[:20])
+                await self._data_queue.put(event)
 
     def _parse_websocket_event(self, raw: dict) -> Optional[ListenerEvent]:
         event_type = raw.get("event_type")
@@ -140,21 +168,39 @@ class Listener:
 
     async def _run_event_processor(self) -> None:
         while self._state.is_running:
+            event = None
+            # Priority 1: Process ALL pending data events first (orderbook/trade)
+            while not self._data_queue.empty():
+                try:
+                    event = self._data_queue.get_nowait()
+                    await self._handle_event(event)
+                    self._state.events_processed += 1
+                except Exception as e:
+                    self._logger.error("event_processing_error", error=str(e))
+                    self._state.errors_count += 1
+
+            # Priority 2: Process ONE control event (discovery/lifecycle)
             try:
-                event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
-                continue
-            try:
+                event = await asyncio.wait_for(self._control_queue.get(), timeout=0.1)
                 await self._handle_event(event)
                 self._state.events_processed += 1
+            except asyncio.TimeoutError:
+                # No control events, yield to allow data events to arrive
+                await asyncio.sleep(0.01)
             except Exception as e:
                 self._logger.error("event_processing_error", error=str(e))
                 self._state.errors_count += 1
 
     async def _handle_event(self, event: ListenerEvent) -> None:
         if isinstance(event, OrderbookEvent):
+            self._logger.info("orderbook_event_processing", asset_id=event.data.asset_id[:20])
+            # Write the real event to the database
             await self._writer.write_orderbook(event.data)
+            # Update forward-filler state (it will emit copies at interval)
+            if self._forward_filler:
+                self._forward_filler.update_state(event.data)
         elif isinstance(event, TradeEvent):
+            self._logger.info("trade_event_processing", asset_id=event.data.asset_id[:20])
             await self._writer.write_trade(event.data)
         elif isinstance(event, MarketDiscoveredEvent):
             await self._handle_market_discovered(event.market)
@@ -174,6 +220,9 @@ class Listener:
             metadata={"question": market.question},
         )
         await self._websocket.subscribe([market.token_id])
+        # Add to forward-filler for continuous snapshots
+        if self._forward_filler:
+            self._forward_filler.add_token(market.token_id, market.condition_id)
         self._state.subscribed_markets[market.token_id] = market
 
     async def _handle_market_closed(self, market: Market, new_state: str) -> None:
@@ -185,4 +234,13 @@ class Listener:
             metadata={"final_prices": market.outcome_prices},
         )
         await self._websocket.unsubscribe([market.token_id])
+        # Remove from forward-filler
+        if self._forward_filler:
+            self._forward_filler.remove_token(market.token_id)
         self._state.subscribed_markets.pop(market.token_id, None)
+
+    async def _handle_forward_filled_snapshot(self, snapshot: OrderbookSnapshot) -> None:
+        """Handle forward-filled snapshot - write to database."""
+        self._logger.debug("forward_filled_snapshot", asset_id=snapshot.asset_id[:20])
+        await self._writer.write_orderbook(snapshot)
+        self._state.snapshots_forward_filled += 1

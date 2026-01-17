@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS listeners (
     description TEXT,
     filters JSONB NOT NULL DEFAULT '{}',
     discovery_interval_seconds INTEGER NOT NULL DEFAULT 60,
+    emit_interval_ms INTEGER NOT NULL DEFAULT 100,  -- Forward-fill emission interval (milliseconds)
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -71,6 +72,8 @@ CREATE TABLE IF NOT EXISTS orderbook_snapshots (
     ask_depth DECIMAL,
     hash TEXT,
     raw_payload JSONB,
+    is_forward_filled BOOLEAN DEFAULT false,  -- True if this is a forward-filled copy
+    source_timestamp BIGINT,                   -- Original event timestamp if forward-filled
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -100,3 +103,5 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_market_timestamp ON orderbook_snapshots
 CREATE INDEX IF NOT EXISTS idx_trades_listener_asset_ts ON trades(listener_id, asset_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_trades_asset_timestamp ON trades(asset_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_state_history_market ON market_state_history(market_id, transitioned_at DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_forward_filled ON orderbook_snapshots(is_forward_filled);
+CREATE INDEX IF NOT EXISTS idx_snapshots_source_ts ON orderbook_snapshots(source_timestamp) WHERE source_timestamp IS NOT NULL;

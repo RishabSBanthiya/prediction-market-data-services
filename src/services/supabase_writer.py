@@ -17,6 +17,7 @@ class SupabaseWriter(IDataWriter):
         self._trade_buffer: list[dict] = []
         self._flush_task: Optional[asyncio.Task] = None
         self._running = False
+        self._schema_has_forward_fill: bool = True  # Will be set to False if columns missing
 
     async def start(self) -> None:
         self._running = True
@@ -29,7 +30,7 @@ class SupabaseWriter(IDataWriter):
         await self.flush()
 
     async def write_orderbook(self, snapshot: OrderbookSnapshot) -> None:
-        self._orderbook_buffer.append({
+        record = {
             "listener_id": self._listener_id,
             "asset_id": snapshot.asset_id,
             "market": snapshot.market,
@@ -44,7 +45,12 @@ class SupabaseWriter(IDataWriter):
             "ask_depth": snapshot.ask_depth,
             "hash": snapshot.hash,
             "raw_payload": snapshot.raw_payload,
-        })
+        }
+        # Only include forward-fill fields if schema supports them
+        if self._schema_has_forward_fill:
+            record["is_forward_filled"] = snapshot.is_forward_filled
+            record["source_timestamp"] = snapshot.source_timestamp
+        self._orderbook_buffer.append(record)
         if len(self._orderbook_buffer) >= self.BATCH_SIZE:
             await self._flush_orderbooks()
 
@@ -125,7 +131,23 @@ class SupabaseWriter(IDataWriter):
             self._client.table("orderbook_snapshots").insert(buffer).execute()
             self._logger.debug("flushed_orderbooks", count=len(buffer))
         except Exception as e:
-            self._logger.error("flush_orderbooks_failed", error=str(e))
+            error_str = str(e)
+            # Handle missing forward-fill columns by retrying without them
+            if "is_forward_filled" in error_str or "source_timestamp" in error_str:
+                self._logger.warning("forward_fill_columns_missing", msg="Retrying without forward-fill columns")
+                self._schema_has_forward_fill = False
+                # Remove forward-fill fields and retry
+                for record in buffer:
+                    record.pop("is_forward_filled", None)
+                    record.pop("source_timestamp", None)
+                try:
+                    self._client.table("orderbook_snapshots").insert(buffer).execute()
+                    self._logger.debug("flushed_orderbooks", count=len(buffer))
+                    return
+                except Exception as retry_error:
+                    self._logger.error("flush_orderbooks_retry_failed", error=str(retry_error))
+            else:
+                self._logger.error("flush_orderbooks_failed", error=error_str)
             self._orderbook_buffer = buffer + self._orderbook_buffer
 
     async def _flush_trades(self) -> None:

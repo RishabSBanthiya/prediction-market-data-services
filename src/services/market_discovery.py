@@ -1,4 +1,5 @@
 import fnmatch
+import json
 import ssl
 import certifi
 from typing import Optional
@@ -109,7 +110,11 @@ class PolymarketDiscoveryService(IMarketDiscovery):
         return markets
 
     def _parse_market(self, data: dict, event: dict = None) -> Market:
-        clob_ids = data.get("clobTokenIds") or []
+        clob_ids_raw = data.get("clobTokenIds") or []
+        if isinstance(clob_ids_raw, str):
+            clob_ids = json.loads(clob_ids_raw) if clob_ids_raw else []
+        else:
+            clob_ids = clob_ids_raw
         token_id = clob_ids[0] if clob_ids else ""
         return Market(
             condition_id=data.get("conditionId", ""),

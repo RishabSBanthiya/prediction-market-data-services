@@ -55,6 +55,8 @@ def mock_websocket():
 @pytest.fixture
 def mock_writer():
     writer = AsyncMock()
+    writer.start = AsyncMock()
+    writer.stop = AsyncMock()
     writer.write_orderbook = AsyncMock()
     writer.write_trade = AsyncMock()
     writer.write_market = AsyncMock()
