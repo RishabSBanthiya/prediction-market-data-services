@@ -61,13 +61,12 @@ class PolymarketWebSocketClient(IWebSocketClient):
         self._logger.info("websocket_subscribed", count=len(new_tokens))
 
     async def unsubscribe(self, token_ids: list[str]) -> None:
-        # Note: Polymarket does NOT support unsubscribing from WebSocket streams
-        # We just remove from local tracking - data will still arrive but be ignored
         tokens_to_remove = set(token_ids) & self._subscribed_tokens
         if not tokens_to_remove:
             return
+        await self._send_unsubscription(list(tokens_to_remove))
         self._subscribed_tokens -= tokens_to_remove
-        self._logger.info("websocket_unsubscribed_local", count=len(tokens_to_remove))
+        self._logger.info("websocket_unsubscribed", count=len(tokens_to_remove))
 
     async def events(self) -> AsyncIterator[dict]:
         while self._running:
@@ -80,8 +79,13 @@ class PolymarketWebSocketClient(IWebSocketClient):
     async def _send_subscription(self, token_ids: list[str]) -> None:
         if not self._ws:
             return
-        # Simple format per Polymarket docs - no operation field needed
         msg = {"assets_ids": token_ids, "type": "market"}
+        await self._ws.send(json.dumps(msg))
+
+    async def _send_unsubscription(self, token_ids: list[str]) -> None:
+        if not self._ws:
+            return
+        msg = {"assets_ids": token_ids, "type": "market", "operation": "unsubscribe"}
         await self._ws.send(json.dumps(msg))
 
     async def _receive_loop(self) -> None:
