@@ -420,7 +420,8 @@ If you see errors about missing columns (`is_forward_filled`, `source_timestamp`
 ### Polymarket WebSocket
 - **URL**: `wss://ws-subscriptions-clob.polymarket.com/ws/market`
 - **Events**: `book` (orderbook updates), `last_trade_price` (trades)
-- **Subscription**: Send `{"assets_ids": ["token_id"], "type": "market"}`
+- **Subscribe**: Send `{"assets_ids": ["token_id"], "type": "market"}`
+- **Unsubscribe**: Send `{"assets_ids": ["token_id"], "type": "market", "operation": "unsubscribe"}`
 
 ### Gamma API (Market Discovery)
 - **Base URL**: `https://gamma-api.polymarket.com`

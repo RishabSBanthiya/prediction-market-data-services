@@ -92,6 +92,7 @@ Creates continuous data stream from sparse WebSocket events:
 ### PolymarketWebSocketClient (src/services/websocket_client.py)
 - URL: `wss://ws-subscriptions-clob.polymarket.com/ws/market`
 - Events: `book` (orderbook), `last_trade_price` (trades)
+- Supports subscribe/unsubscribe via `assets_ids` with `operation` field
 - Auto-reconnect with exponential backoff (1s to 60s)
 - Ping/pong every 5 seconds for connection health
 
