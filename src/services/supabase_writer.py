@@ -94,7 +94,7 @@ class SupabaseWriter(IDataWriter):
                 "state": market.state.value if market.state else None,
             }
             self._client.table("markets").upsert(
-                data, on_conflict="listener_id,condition_id"
+                data, on_conflict="listener_id,token_id"
             ).execute()
         except Exception as e:
             self._logger.error("write_market_failed", error=str(e))

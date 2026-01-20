@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS markets (
     token_id TEXT NOT NULL,
     market_slug TEXT,
     event_slug TEXT,
-    UNIQUE(listener_id, condition_id),
+    UNIQUE(listener_id, token_id),
     question TEXT,
     outcome TEXT,
     outcome_index INTEGER,

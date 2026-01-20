@@ -1,4 +1,6 @@
 .env
+.env.local
+.env.prod
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -111,10 +111,32 @@ class Listener:
         new_tokens = discovered_tokens - current_tokens
         removed_tokens = current_tokens - discovered_tokens
 
-        for token_id in new_tokens:
-            market = discovered_by_token[token_id]
-            market.listener_id = self.listener_id
-            await self._control_queue.put(MarketDiscoveredEvent(market=market))
+        # Batch process new markets: write to DB first, then subscribe all at once
+        if new_tokens:
+            new_markets = []
+            for token_id in new_tokens:
+                market = discovered_by_token[token_id]
+                market.listener_id = self.listener_id
+                market.state = MarketState.TRACKING
+                new_markets.append(market)
+
+            # Write all markets to DB
+            for market in new_markets:
+                self._logger.info("market_discovered", question=market.question, token_id=market.token_id)
+                await self._writer.write_market(market)
+                await self._writer.write_state_transition(
+                    market_id=market.condition_id,
+                    old_state=None,
+                    new_state=MarketState.TRACKING.value,
+                    metadata={"question": market.question},
+                )
+                if self._forward_filler:
+                    self._forward_filler.add_token(market.token_id, market.condition_id)
+                self._state.subscribed_markets[market.token_id] = market
+
+            # Subscribe to all new tokens in one batch
+            await self._websocket.subscribe(list(new_tokens))
+            self._logger.info("markets_batch_subscribed", count=len(new_tokens))
 
         for token_id in removed_tokens:
             market = self._state.subscribed_markets[token_id]
@@ -193,6 +215,14 @@ class Listener:
 
     async def _handle_event(self, event: ListenerEvent) -> None:
         if isinstance(event, OrderbookEvent):
+            # Only write data for markets we've already subscribed to (market exists in DB)
+            if event.data.asset_id not in self._state.subscribed_markets:
+                self._logger.warning(
+                    "orderbook_skipped_unknown_market",
+                    asset_id=event.data.asset_id[:20],
+                    subscribed_count=len(self._state.subscribed_markets)
+                )
+                return
             self._logger.info("orderbook_event_processing", asset_id=event.data.asset_id[:20])
             # Write the real event to the database
             await self._writer.write_orderbook(event.data)
@@ -200,6 +230,10 @@ class Listener:
             if self._forward_filler:
                 self._forward_filler.update_state(event.data)
         elif isinstance(event, TradeEvent):
+            # Only write data for markets we've already subscribed to (market exists in DB)
+            if event.data.asset_id not in self._state.subscribed_markets:
+                self._logger.debug("trade_skipped_unknown_market", asset_id=event.data.asset_id[:20])
+                return
             self._logger.info("trade_event_processing", asset_id=event.data.asset_id[:20])
             await self._writer.write_trade(event.data)
         elif isinstance(event, MarketDiscoveredEvent):

@@ -30,10 +30,10 @@ class OrderbookSnapshot(BaseModel):
 
     def compute_metrics(self) -> None:
         if self.bids:
-            self.best_bid = float(self.bids[0].price)
+            self.best_bid = max(float(b.price) for b in self.bids)
             self.bid_depth = sum(float(b.size) for b in self.bids)
         if self.asks:
-            self.best_ask = float(self.asks[0].price)
+            self.best_ask = min(float(a.price) for a in self.asks)
             self.ask_depth = sum(float(a.size) for a in self.asks)
         if self.best_bid and self.best_ask:
             self.spread = self.best_ask - self.best_bid

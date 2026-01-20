@@ -1,9 +1,41 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
+
+
+def get_env_file() -> str:
+    """Determine which .env file to load based on APP_ENV."""
+    app_env = os.getenv("APP_ENV", "").lower()
+    if app_env == "local":
+        return ".env.local"
+    elif app_env == "prod":
+        return ".env.prod"
+    return ".env"
 
 
 class Config(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=get_env_file())
 
-    supabase_url: str
-    supabase_key: str
+    # Database mode: "supabase" or "postgres"
+    db_mode: str = "supabase"
+
+    # Supabase config (used when db_mode="supabase")
+    supabase_url: Optional[str] = None
+    supabase_key: Optional[str] = None
+
+    # PostgreSQL config (used when db_mode="postgres")
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_user: str = "polymarket"
+    postgres_password: str = "polymarket"
+    postgres_db: str = "polymarket"
+
     log_level: str = "INFO"
+
+    @property
+    def postgres_dsn(self) -> str:
+        return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+
+    @property
+    def async_postgres_dsn(self) -> str:
+        return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

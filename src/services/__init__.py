@@ -3,6 +3,7 @@ __all__ = [
     "PolymarketWebSocketClient",
     "ConnectionManager",
     "SupabaseWriter",
+    "PostgresWriter",
     "SupabaseConfigLoader",
     "StateForwardFiller",
 ]

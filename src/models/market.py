@@ -26,7 +26,7 @@ class Market(BaseModel):
     category: Optional[str] = None
     subcategory: Optional[str] = None
     series_id: Optional[str] = None
-    tags: Optional[dict] = None
+    tags: Optional[list] = None
     description: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None

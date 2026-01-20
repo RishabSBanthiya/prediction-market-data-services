@@ -1,8 +1,6 @@
 import asyncio
 import signal
 
-from supabase import create_client
-
 from config import Config
 from core.listener_factory import ListenerFactory
 from core.listener_manager import ListenerManager
@@ -15,11 +13,24 @@ async def main():
     logger_factory = LoggerFactory(config.log_level)
     logger = logger_factory.create("main")
 
-    logger.info("application_starting")
+    logger.info("application_starting", db_mode=config.db_mode)
 
-    supabase = create_client(config.supabase_url, config.supabase_key)
-    config_loader = SupabaseConfigLoader(supabase)
-    factory = ListenerFactory(supabase, logger_factory)
+    if config.db_mode == "postgres":
+        from services.config_loader import PostgresConfigLoader
+        config_loader = PostgresConfigLoader(config.postgres_dsn)
+        factory = ListenerFactory(
+            logger_factory=logger_factory,
+            postgres_dsn=config.postgres_dsn,
+        )
+    else:
+        from supabase import create_client
+        supabase = create_client(config.supabase_url, config.supabase_key)
+        config_loader = SupabaseConfigLoader(supabase)
+        factory = ListenerFactory(
+            logger_factory=logger_factory,
+            supabase_client=supabase,
+        )
+
     manager = ListenerManager(factory, config_loader, logger)
 
     loop = asyncio.get_event_loop()

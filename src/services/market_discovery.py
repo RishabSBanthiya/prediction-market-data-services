@@ -124,6 +124,26 @@ class PolymarketDiscoveryService(IMarketDiscovery):
         else:
             outcomes = outcomes_raw
 
+        # Extract tags from event level (array of {id, label, slug} objects)
+        tags = None
+        if event and event.get("tags"):
+            tags = event.get("tags")
+
+        # Extract series_id from event level (event.series[0].id)
+        series_id = None
+        if event and event.get("series"):
+            series_list = event.get("series")
+            if series_list and len(series_list) > 0:
+                series_id = str(series_list[0].get("id"))
+
+        # Derive category/subcategory from tags if available
+        category = None
+        subcategory = None
+        if tags and len(tags) > 0:
+            category = tags[0].get("label")  # First tag as category (e.g., "Sports")
+            if len(tags) > 1:
+                subcategory = tags[1].get("label")  # Second tag as subcategory (e.g., "NBA")
+
         markets = []
         for i, token_id in enumerate(clob_ids):
             outcome = outcomes[i] if i < len(outcomes) else None
@@ -137,10 +157,10 @@ class PolymarketDiscoveryService(IMarketDiscovery):
                 outcome_index=i,
                 event_id=str(event.get("id")) if event else None,
                 event_title=event.get("title") if event else None,
-                category=data.get("category"),
-                subcategory=data.get("subcategory"),
-                series_id=data.get("seriesId"),
-                tags=data.get("tags"),
+                category=category,
+                subcategory=subcategory,
+                series_id=series_id,
+                tags=tags,
                 description=data.get("description"),
                 volume=float(data.get("volume") or 0),
                 liquidity=float(data.get("liquidity") or 0),
@@ -160,10 +180,10 @@ class PolymarketDiscoveryService(IMarketDiscovery):
                 outcome_index=data.get("outcomeIndex"),
                 event_id=str(event.get("id")) if event else None,
                 event_title=event.get("title") if event else None,
-                category=data.get("category"),
-                subcategory=data.get("subcategory"),
-                series_id=data.get("seriesId"),
-                tags=data.get("tags"),
+                category=category,
+                subcategory=subcategory,
+                series_id=series_id,
+                tags=tags,
                 description=data.get("description"),
                 volume=float(data.get("volume") or 0),
                 liquidity=float(data.get("liquidity") or 0),
