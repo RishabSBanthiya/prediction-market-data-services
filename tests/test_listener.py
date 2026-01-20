@@ -199,6 +199,14 @@ def test_parse_websocket_event_unknown(listener):
 
 @pytest.mark.asyncio
 async def test_handle_orderbook_event(listener, mock_writer):
+    # Must add market to subscribed_markets first (listener validates this)
+    market = Market(
+        condition_id="market-456",
+        token_id="asset-123",
+        question="Test market?",
+    )
+    listener.state.subscribed_markets["asset-123"] = market
+
     snapshot = OrderbookSnapshot(
         listener_id="test",
         asset_id="asset-123",
@@ -217,6 +225,14 @@ async def test_handle_orderbook_event(listener, mock_writer):
 
 @pytest.mark.asyncio
 async def test_handle_trade_event(listener, mock_writer):
+    # Must add market to subscribed_markets first (listener validates this)
+    market = Market(
+        condition_id="market-456",
+        token_id="asset-123",
+        question="Test market?",
+    )
+    listener.state.subscribed_markets["asset-123"] = market
+
     trade = Trade(
         listener_id="test",
         asset_id="asset-123",
@@ -235,7 +251,7 @@ async def test_handle_trade_event(listener, mock_writer):
 
 
 @pytest.mark.asyncio
-async def test_discover_and_sync_new_markets(listener, mock_discovery):
+async def test_discover_and_sync_new_markets(listener, mock_discovery, mock_writer, mock_websocket):
     market = Market(
         condition_id="cond-123",
         token_id="token-456",
@@ -245,9 +261,11 @@ async def test_discover_and_sync_new_markets(listener, mock_discovery):
 
     await listener._discover_and_sync_markets()
 
-    event = await asyncio.wait_for(listener._event_queue.get(), timeout=1.0)
-    assert isinstance(event, MarketDiscoveredEvent)
-    assert event.market.token_id == "token-456"
+    # New behavior: markets are handled inline (write to DB, subscribe) instead of via events
+    mock_writer.write_market.assert_called_once()
+    mock_writer.write_state_transition.assert_called_once()
+    mock_websocket.subscribe.assert_called_once_with(["token-456"])
+    assert "token-456" in listener.state.subscribed_markets
 
 
 @pytest.mark.asyncio

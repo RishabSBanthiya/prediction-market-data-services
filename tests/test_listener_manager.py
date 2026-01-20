@@ -54,7 +54,7 @@ def mock_config_loader(listener_config):
 
 
 def test_listener_factory_creates_listener(mock_supabase, mock_logger_factory, listener_config):
-    factory = ListenerFactory(mock_supabase, mock_logger_factory)
+    factory = ListenerFactory(mock_logger_factory, mock_supabase)
 
     with patch('core.listener_factory.PolymarketDiscoveryService'), \
          patch('core.listener_factory.PolymarketWebSocketClient'), \
@@ -68,7 +68,7 @@ def test_listener_factory_creates_listener(mock_supabase, mock_logger_factory, l
 
 @pytest.mark.asyncio
 async def test_listener_manager_start(mock_logger, mock_config_loader, mock_logger_factory, mock_supabase):
-    factory = ListenerFactory(mock_supabase, mock_logger_factory)
+    factory = ListenerFactory(mock_logger_factory, mock_supabase)
     manager = ListenerManager(factory, mock_config_loader, mock_logger)
 
     with patch.object(factory, 'create') as mock_create:
@@ -90,7 +90,7 @@ async def test_listener_manager_start(mock_logger, mock_config_loader, mock_logg
 
 @pytest.mark.asyncio
 async def test_listener_manager_stop(mock_logger, mock_config_loader, mock_logger_factory, mock_supabase):
-    factory = ListenerFactory(mock_supabase, mock_logger_factory)
+    factory = ListenerFactory(mock_logger_factory, mock_supabase)
     manager = ListenerManager(factory, mock_config_loader, mock_logger)
 
     with patch.object(factory, 'create') as mock_create:
@@ -110,7 +110,7 @@ async def test_listener_manager_stop(mock_logger, mock_config_loader, mock_logge
 
 @pytest.mark.asyncio
 async def test_listener_manager_get_status(mock_logger, mock_config_loader, mock_logger_factory, mock_supabase):
-    factory = ListenerFactory(mock_supabase, mock_logger_factory)
+    factory = ListenerFactory(mock_logger_factory, mock_supabase)
     manager = ListenerManager(factory, mock_config_loader, mock_logger)
 
     with patch.object(factory, 'create') as mock_create:
@@ -159,7 +159,7 @@ async def test_listener_manager_reload_adds_new(mock_logger, mock_logger_factory
     config_loader = AsyncMock()
     config_loader.load_active_configs = AsyncMock(return_value=[config1])
 
-    factory = ListenerFactory(mock_supabase, mock_logger_factory)
+    factory = ListenerFactory(mock_logger_factory, mock_supabase)
     manager = ListenerManager(factory, config_loader, mock_logger)
 
     with patch.object(factory, 'create') as mock_create:
@@ -200,7 +200,7 @@ async def test_listener_manager_reload_removes_old(mock_logger, mock_logger_fact
     config_loader = AsyncMock()
     config_loader.load_active_configs = AsyncMock(return_value=[config1])
 
-    factory = ListenerFactory(mock_supabase, mock_logger_factory)
+    factory = ListenerFactory(mock_logger_factory, mock_supabase)
     manager = ListenerManager(factory, config_loader, mock_logger)
 
     with patch.object(factory, 'create') as mock_create:
