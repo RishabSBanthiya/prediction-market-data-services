@@ -17,7 +17,7 @@ def listener_config():
     return ListenerConfig(
         id="test-listener-1",
         name="test-listener",
-        filters=ListenerFilters(tag_ids=[100639]),
+        filters={"tag_ids": [100639]},
         discovery_interval_seconds=60,
         is_active=True,
         created_at=datetime.now(timezone.utc),
@@ -144,14 +144,14 @@ async def test_listener_manager_reload_adds_new(mock_logger, mock_logger_factory
     config1 = ListenerConfig(
         id="listener-1",
         name="listener-1",
-        filters=ListenerFilters(),
+        filters={},
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
     config2 = ListenerConfig(
         id="listener-2",
         name="listener-2",
-        filters=ListenerFilters(),
+        filters={},
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -192,7 +192,7 @@ async def test_listener_manager_reload_removes_old(mock_logger, mock_logger_fact
     config1 = ListenerConfig(
         id="listener-1",
         name="listener-1",
-        filters=ListenerFilters(),
+        filters={},
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )

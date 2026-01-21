@@ -103,7 +103,7 @@ class Listener:
             await asyncio.sleep(self._config.discovery_interval_seconds)
 
     async def _discover_and_sync_markets(self) -> None:
-        discovered = await self._discovery.discover_markets(self._config.filters.model_dump())
+        discovered = await self._discovery.discover_markets(self._config.filters)
         discovered_by_token = {m.token_id: m for m in discovered}
         current_tokens = set(self._state.subscribed_markets.keys())
         discovered_tokens = set(discovered_by_token.keys())

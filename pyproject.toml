@@ -1,7 +1,7 @@
 [project]
 name = "prediction-market-data-services"
 version = "0.1.0"
-description = "Real-time orderbook data collection from Polymarket"
+description = "Real-time orderbook data collection from Polymarket and Kalshi"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.9.0",
@@ -11,6 +11,8 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
     "structlog>=24.0.0",
+    "cryptography>=41.0.0",  # For Kalshi RSA-PSS authentication
+    "certifi>=2023.0.0",     # SSL certificates
 ]
 
 [project.optional-dependencies]

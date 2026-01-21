@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from models import ListenerConfig, ListenerFilters
+from models import ListenerConfig, Platform
 
 
 class SupabaseConfigLoader:
@@ -21,11 +21,13 @@ class SupabaseConfigLoader:
 
     def _parse_config(self, row: dict) -> ListenerConfig:
         filters_data = row.get("filters", {})
+        platform_str = row.get("platform", "polymarket")
         return ListenerConfig(
             id=str(row["id"]),
             name=row["name"],
+            platform=Platform(platform_str),
             description=row.get("description"),
-            filters=ListenerFilters(**filters_data),
+            filters=filters_data,  # Keep as dict, validated by discovery service
             discovery_interval_seconds=row.get("discovery_interval_seconds", 60),
             emit_interval_ms=row.get("emit_interval_ms", 100),
             enable_forward_fill=row.get("enable_forward_fill", False),
@@ -74,11 +76,13 @@ class PostgresConfigLoader:
         filters_data = row.get("filters", {})
         if isinstance(filters_data, str):
             filters_data = json.loads(filters_data)
+        platform_str = row.get("platform", "polymarket")
         return ListenerConfig(
             id=str(row["id"]),
             name=row["name"],
+            platform=Platform(platform_str),
             description=row.get("description"),
-            filters=ListenerFilters(**filters_data),
+            filters=filters_data,  # Keep as dict, validated by discovery service
             discovery_interval_seconds=row.get("discovery_interval_seconds", 60),
             emit_interval_ms=row.get("emit_interval_ms", 100),
             enable_forward_fill=row.get("enable_forward_fill", False),

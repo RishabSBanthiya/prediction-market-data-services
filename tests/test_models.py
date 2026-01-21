@@ -19,11 +19,11 @@ def test_listener_config():
     config = ListenerConfig(
         id="test-id",
         name="test-listener",
-        filters=ListenerFilters(tag_ids=[100639]),
+        filters={"tag_ids": [100639]},
         discovery_interval_seconds=60,
     )
     assert config.name == "test-listener"
-    assert config.filters.tag_ids == [100639]
+    assert config.filters["tag_ids"] == [100639]
 
 
 def test_market():

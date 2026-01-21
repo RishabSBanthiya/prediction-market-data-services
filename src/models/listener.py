@@ -1,6 +1,13 @@
 from datetime import datetime
-from typing import Optional
+from enum import Enum
+from typing import Optional, Union
 from pydantic import BaseModel, Field
+
+
+class Platform(str, Enum):
+    """Supported prediction market platforms."""
+    POLYMARKET = "polymarket"
+    KALSHI = "kalshi"
 
 
 class ListenerFilters(BaseModel):
@@ -15,8 +22,9 @@ class ListenerFilters(BaseModel):
 class ListenerConfig(BaseModel):
     id: str
     name: str
+    platform: Platform = Platform.POLYMARKET
     description: Optional[str] = None
-    filters: ListenerFilters
+    filters: dict  # Platform-specific filters (validated by discovery service)
     discovery_interval_seconds: int = 60
     emit_interval_ms: int = 100  # Forward-fill emission interval (milliseconds)
     enable_forward_fill: bool = False  # Set to True to emit forward-filled snapshots

@@ -17,7 +17,7 @@ def listener_config():
     return ListenerConfig(
         id="test-listener-1",
         name="test-listener",
-        filters=ListenerFilters(tag_ids=[100639]),
+        filters={"tag_ids": [100639]},
         discovery_interval_seconds=60,
         is_active=True,
         created_at=datetime.now(timezone.utc),

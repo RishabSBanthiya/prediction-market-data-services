@@ -11,8 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from supabase import create_client
 from config import Config
-from services.market_discovery import PolymarketDiscoveryService
-from services.websocket_client import PolymarketWebSocketClient
+from services.polymarket_discovery import PolymarketDiscoveryService
+from services.polymarket_websocket_client import PolymarketWebSocketClient
 from services.state_forward_filler import StateForwardFiller
 from utils.logger import LoggerFactory
 from models import OrderbookSnapshot, OrderLevel

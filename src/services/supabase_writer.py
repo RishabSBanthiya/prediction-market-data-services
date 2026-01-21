@@ -9,15 +9,17 @@ class SupabaseWriter(IDataWriter):
     BATCH_SIZE = 100
     FLUSH_INTERVAL = 1.0
 
-    def __init__(self, client, listener_id: str, logger):
+    def __init__(self, client, listener_id: str, logger, platform: str = "polymarket"):
         self._client = client
         self._listener_id = listener_id
         self._logger = logger
+        self._platform = platform
         self._orderbook_buffer: list[dict] = []
         self._trade_buffer: list[dict] = []
         self._flush_task: Optional[asyncio.Task] = None
         self._running = False
         self._schema_has_forward_fill: bool = True  # Will be set to False if columns missing
+        self._schema_has_platform: bool = True  # Will be set to False if column missing
 
     async def start(self) -> None:
         self._running = True
@@ -50,12 +52,15 @@ class SupabaseWriter(IDataWriter):
         if self._schema_has_forward_fill:
             record["is_forward_filled"] = snapshot.is_forward_filled
             record["source_timestamp"] = snapshot.source_timestamp
+        # Only include platform if schema supports it
+        if self._schema_has_platform:
+            record["platform"] = self._platform
         self._orderbook_buffer.append(record)
         if len(self._orderbook_buffer) >= self.BATCH_SIZE:
             await self._flush_orderbooks()
 
     async def write_trade(self, trade: Trade) -> None:
-        self._trade_buffer.append({
+        record = {
             "listener_id": self._listener_id,
             "asset_id": trade.asset_id,
             "market": trade.market,
@@ -65,7 +70,10 @@ class SupabaseWriter(IDataWriter):
             "side": trade.side,
             "fee_rate_bps": trade.fee_rate_bps,
             "raw_payload": trade.raw_payload,
-        })
+        }
+        if self._schema_has_platform:
+            record["platform"] = self._platform
+        self._trade_buffer.append(record)
         if len(self._trade_buffer) >= self.BATCH_SIZE:
             await self._flush_trades()
 
@@ -93,11 +101,24 @@ class SupabaseWriter(IDataWriter):
                 "is_closed": market.is_closed,
                 "state": market.state.value if market.state else None,
             }
+            if self._schema_has_platform:
+                data["platform"] = self._platform
             self._client.table("markets").upsert(
                 data, on_conflict="listener_id,token_id"
             ).execute()
         except Exception as e:
-            self._logger.error("write_market_failed", error=str(e))
+            error_str = str(e)
+            if "platform" in error_str and self._schema_has_platform:
+                self._schema_has_platform = False
+                data.pop("platform", None)
+                try:
+                    self._client.table("markets").upsert(
+                        data, on_conflict="listener_id,token_id"
+                    ).execute()
+                    return
+                except Exception as retry_error:
+                    self._logger.error("write_market_retry_failed", error=str(retry_error))
+            self._logger.error("write_market_failed", error=error_str)
 
     async def write_state_transition(
         self, market_id: str, old_state: Optional[str], new_state: str, metadata: dict
@@ -132,14 +153,22 @@ class SupabaseWriter(IDataWriter):
             self._logger.debug("flushed_orderbooks", count=len(buffer))
         except Exception as e:
             error_str = str(e)
-            # Handle missing forward-fill columns by retrying without them
+            needs_retry = False
+            # Handle missing columns by retrying without them
             if "is_forward_filled" in error_str or "source_timestamp" in error_str:
                 self._logger.warning("forward_fill_columns_missing", msg="Retrying without forward-fill columns")
                 self._schema_has_forward_fill = False
-                # Remove forward-fill fields and retry
                 for record in buffer:
                     record.pop("is_forward_filled", None)
                     record.pop("source_timestamp", None)
+                needs_retry = True
+            if "platform" in error_str:
+                self._logger.warning("platform_column_missing", msg="Retrying without platform column")
+                self._schema_has_platform = False
+                for record in buffer:
+                    record.pop("platform", None)
+                needs_retry = True
+            if needs_retry:
                 try:
                     self._client.table("orderbook_snapshots").insert(buffer).execute()
                     self._logger.debug("flushed_orderbooks", count=len(buffer))
@@ -159,5 +188,18 @@ class SupabaseWriter(IDataWriter):
             self._client.table("trades").insert(buffer).execute()
             self._logger.debug("flushed_trades", count=len(buffer))
         except Exception as e:
-            self._logger.error("flush_trades_failed", error=str(e))
+            error_str = str(e)
+            if "platform" in error_str and self._schema_has_platform:
+                self._logger.warning("platform_column_missing_trades", msg="Retrying without platform column")
+                self._schema_has_platform = False
+                for record in buffer:
+                    record.pop("platform", None)
+                try:
+                    self._client.table("trades").insert(buffer).execute()
+                    self._logger.debug("flushed_trades", count=len(buffer))
+                    return
+                except Exception as retry_error:
+                    self._logger.error("flush_trades_retry_failed", error=str(retry_error))
+            else:
+                self._logger.error("flush_trades_failed", error=error_str)
             self._trade_buffer = buffer + self._trade_buffer

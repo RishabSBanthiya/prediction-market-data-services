@@ -12,15 +12,17 @@ class PostgresWriter(IDataWriter):
     BATCH_SIZE = 100
     FLUSH_INTERVAL = 1.0
 
-    def __init__(self, dsn: str, listener_id: str, logger):
+    def __init__(self, dsn: str, listener_id: str, logger, platform: str = "polymarket"):
         self._dsn = dsn
         self._listener_id = listener_id
         self._logger = logger
+        self._platform = platform
         self._pool: Optional[asyncpg.Pool] = None
         self._orderbook_buffer: list[dict] = []
         self._trade_buffer: list[dict] = []
         self._flush_task: Optional[asyncio.Task] = None
         self._running = False
+        self._schema_has_platform: bool = True  # Will be set to False if column missing
 
     async def start(self) -> None:
         self._pool = await asyncpg.create_pool(self._dsn, min_size=2, max_size=10)
@@ -55,6 +57,7 @@ class PostgresWriter(IDataWriter):
             "raw_payload": json.dumps(snapshot.raw_payload) if snapshot.raw_payload else None,
             "is_forward_filled": snapshot.is_forward_filled,
             "source_timestamp": snapshot.source_timestamp,
+            "platform": self._platform,
         }
         self._orderbook_buffer.append(record)
         if len(self._orderbook_buffer) >= self.BATCH_SIZE:
@@ -71,6 +74,7 @@ class PostgresWriter(IDataWriter):
             "side": trade.side,
             "fee_rate_bps": trade.fee_rate_bps,
             "raw_payload": json.dumps(trade.raw_payload) if trade.raw_payload else None,
+            "platform": self._platform,
         })
         if len(self._trade_buffer) >= self.BATCH_SIZE:
             await self._flush_trades()
@@ -80,58 +84,117 @@ class PostgresWriter(IDataWriter):
             return
         try:
             async with self._pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO markets (
-                        listener_id, condition_id, token_id, market_slug, event_slug,
-                        question, outcome, outcome_index, event_id, event_title,
-                        category, subcategory, series_id, tags, description,
-                        volume, liquidity, is_active, is_closed, state
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-                    ON CONFLICT (listener_id, token_id) DO UPDATE SET
-                        condition_id = EXCLUDED.condition_id,
-                        market_slug = EXCLUDED.market_slug,
-                        event_slug = EXCLUDED.event_slug,
-                        question = EXCLUDED.question,
-                        outcome = EXCLUDED.outcome,
-                        outcome_index = EXCLUDED.outcome_index,
-                        event_id = EXCLUDED.event_id,
-                        event_title = EXCLUDED.event_title,
-                        category = EXCLUDED.category,
-                        subcategory = EXCLUDED.subcategory,
-                        series_id = EXCLUDED.series_id,
-                        tags = EXCLUDED.tags,
-                        description = EXCLUDED.description,
-                        volume = EXCLUDED.volume,
-                        liquidity = EXCLUDED.liquidity,
-                        is_active = EXCLUDED.is_active,
-                        is_closed = EXCLUDED.is_closed,
-                        state = EXCLUDED.state,
-                        updated_at = NOW()
-                    """,
-                    self._listener_id,
-                    market.condition_id,
-                    market.token_id,
-                    market.market_slug,
-                    market.event_slug,
-                    market.question,
-                    market.outcome,
-                    market.outcome_index,
-                    market.event_id,
-                    market.event_title,
-                    market.category,
-                    market.subcategory,
-                    market.series_id,
-                    json.dumps(market.tags) if market.tags else None,
-                    market.description,
-                    float(market.volume) if market.volume else None,
-                    float(market.liquidity) if market.liquidity else None,
-                    market.is_active,
-                    market.is_closed,
-                    market.state.value if market.state else None,
-                )
+                if self._schema_has_platform:
+                    await conn.execute(
+                        """
+                        INSERT INTO markets (
+                            listener_id, condition_id, token_id, market_slug, event_slug,
+                            question, outcome, outcome_index, event_id, event_title,
+                            category, subcategory, series_id, tags, description,
+                            volume, liquidity, is_active, is_closed, state, platform
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                        ON CONFLICT (listener_id, token_id) DO UPDATE SET
+                            condition_id = EXCLUDED.condition_id,
+                            market_slug = EXCLUDED.market_slug,
+                            event_slug = EXCLUDED.event_slug,
+                            question = EXCLUDED.question,
+                            outcome = EXCLUDED.outcome,
+                            outcome_index = EXCLUDED.outcome_index,
+                            event_id = EXCLUDED.event_id,
+                            event_title = EXCLUDED.event_title,
+                            category = EXCLUDED.category,
+                            subcategory = EXCLUDED.subcategory,
+                            series_id = EXCLUDED.series_id,
+                            tags = EXCLUDED.tags,
+                            description = EXCLUDED.description,
+                            volume = EXCLUDED.volume,
+                            liquidity = EXCLUDED.liquidity,
+                            is_active = EXCLUDED.is_active,
+                            is_closed = EXCLUDED.is_closed,
+                            state = EXCLUDED.state,
+                            platform = EXCLUDED.platform,
+                            updated_at = NOW()
+                        """,
+                        self._listener_id,
+                        market.condition_id,
+                        market.token_id,
+                        market.market_slug,
+                        market.event_slug,
+                        market.question,
+                        market.outcome,
+                        market.outcome_index,
+                        market.event_id,
+                        market.event_title,
+                        market.category,
+                        market.subcategory,
+                        market.series_id,
+                        json.dumps(market.tags) if market.tags else None,
+                        market.description,
+                        float(market.volume) if market.volume else None,
+                        float(market.liquidity) if market.liquidity else None,
+                        market.is_active,
+                        market.is_closed,
+                        market.state.value if market.state else None,
+                        self._platform,
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        INSERT INTO markets (
+                            listener_id, condition_id, token_id, market_slug, event_slug,
+                            question, outcome, outcome_index, event_id, event_title,
+                            category, subcategory, series_id, tags, description,
+                            volume, liquidity, is_active, is_closed, state
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                        ON CONFLICT (listener_id, token_id) DO UPDATE SET
+                            condition_id = EXCLUDED.condition_id,
+                            market_slug = EXCLUDED.market_slug,
+                            event_slug = EXCLUDED.event_slug,
+                            question = EXCLUDED.question,
+                            outcome = EXCLUDED.outcome,
+                            outcome_index = EXCLUDED.outcome_index,
+                            event_id = EXCLUDED.event_id,
+                            event_title = EXCLUDED.event_title,
+                            category = EXCLUDED.category,
+                            subcategory = EXCLUDED.subcategory,
+                            series_id = EXCLUDED.series_id,
+                            tags = EXCLUDED.tags,
+                            description = EXCLUDED.description,
+                            volume = EXCLUDED.volume,
+                            liquidity = EXCLUDED.liquidity,
+                            is_active = EXCLUDED.is_active,
+                            is_closed = EXCLUDED.is_closed,
+                            state = EXCLUDED.state,
+                            updated_at = NOW()
+                        """,
+                        self._listener_id,
+                        market.condition_id,
+                        market.token_id,
+                        market.market_slug,
+                        market.event_slug,
+                        market.question,
+                        market.outcome,
+                        market.outcome_index,
+                        market.event_id,
+                        market.event_title,
+                        market.category,
+                        market.subcategory,
+                        market.series_id,
+                        json.dumps(market.tags) if market.tags else None,
+                        market.description,
+                        float(market.volume) if market.volume else None,
+                        float(market.liquidity) if market.liquidity else None,
+                        market.is_active,
+                        market.is_closed,
+                        market.state.value if market.state else None,
+                    )
         except Exception as e:
-            self._logger.error("write_market_failed", error=str(e))
+            error_str = str(e)
+            if "platform" in error_str and self._schema_has_platform:
+                self._schema_has_platform = False
+                await self.write_market(market)  # Retry without platform
+            else:
+                self._logger.error("write_market_failed", error=error_str)
 
     async def write_state_transition(
         self, market_id: str, old_state: Optional[str], new_state: str, metadata: dict
@@ -170,24 +233,45 @@ class PostgresWriter(IDataWriter):
         self._orderbook_buffer = []
         try:
             async with self._pool.acquire() as conn:
-                await conn.executemany(
-                    """
-                    INSERT INTO orderbook_snapshots (
-                        listener_id, asset_id, market, timestamp, bids, asks,
-                        best_bid, best_ask, spread, mid_price, bid_depth, ask_depth,
-                        hash, raw_payload, is_forward_filled, source_timestamp
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-                    """,
-                    [
-                        (
-                            r["listener_id"], r["asset_id"], r["market"], r["timestamp"],
-                            r["bids"], r["asks"], r["best_bid"], r["best_ask"],
-                            r["spread"], r["mid_price"], r["bid_depth"], r["ask_depth"],
-                            r["hash"], r["raw_payload"], r["is_forward_filled"], r["source_timestamp"]
-                        )
-                        for r in buffer
-                    ]
-                )
+                if self._schema_has_platform:
+                    await conn.executemany(
+                        """
+                        INSERT INTO orderbook_snapshots (
+                            listener_id, asset_id, market, timestamp, bids, asks,
+                            best_bid, best_ask, spread, mid_price, bid_depth, ask_depth,
+                            hash, raw_payload, is_forward_filled, source_timestamp, platform
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                        """,
+                        [
+                            (
+                                r["listener_id"], r["asset_id"], r["market"], r["timestamp"],
+                                r["bids"], r["asks"], r["best_bid"], r["best_ask"],
+                                r["spread"], r["mid_price"], r["bid_depth"], r["ask_depth"],
+                                r["hash"], r["raw_payload"], r["is_forward_filled"], r["source_timestamp"],
+                                r["platform"]
+                            )
+                            for r in buffer
+                        ]
+                    )
+                else:
+                    await conn.executemany(
+                        """
+                        INSERT INTO orderbook_snapshots (
+                            listener_id, asset_id, market, timestamp, bids, asks,
+                            best_bid, best_ask, spread, mid_price, bid_depth, ask_depth,
+                            hash, raw_payload, is_forward_filled, source_timestamp
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                        """,
+                        [
+                            (
+                                r["listener_id"], r["asset_id"], r["market"], r["timestamp"],
+                                r["bids"], r["asks"], r["best_bid"], r["best_ask"],
+                                r["spread"], r["mid_price"], r["bid_depth"], r["ask_depth"],
+                                r["hash"], r["raw_payload"], r["is_forward_filled"], r["source_timestamp"]
+                            )
+                            for r in buffer
+                        ]
+                    )
             self._logger.debug("flushed_orderbooks", count=len(buffer))
         except Exception as e:
             error_str = str(e)
@@ -195,6 +279,11 @@ class PostgresWriter(IDataWriter):
             if "foreign key constraint" in error_str:
                 self._logger.warning("flush_orderbooks_fk_violation", dropped=len(buffer))
                 # Don't re-add to buffer - these records will never succeed
+            elif "platform" in error_str and self._schema_has_platform:
+                self._logger.warning("platform_column_missing", msg="Retrying without platform")
+                self._schema_has_platform = False
+                self._orderbook_buffer = buffer + self._orderbook_buffer
+                await self._flush_orderbooks()
             else:
                 self._logger.error("flush_orderbooks_failed", error=error_str)
                 self._orderbook_buffer = buffer + self._orderbook_buffer
@@ -206,25 +295,47 @@ class PostgresWriter(IDataWriter):
         self._trade_buffer = []
         try:
             async with self._pool.acquire() as conn:
-                await conn.executemany(
-                    """
-                    INSERT INTO trades (
-                        listener_id, asset_id, market, timestamp, price, size, side, fee_rate_bps, raw_payload
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                    """,
-                    [
-                        (
-                            r["listener_id"], r["asset_id"], r["market"], r["timestamp"],
-                            r["price"], r["size"], r["side"], r["fee_rate_bps"], r["raw_payload"]
-                        )
-                        for r in buffer
-                    ]
-                )
+                if self._schema_has_platform:
+                    await conn.executemany(
+                        """
+                        INSERT INTO trades (
+                            listener_id, asset_id, market, timestamp, price, size, side, fee_rate_bps, raw_payload, platform
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        """,
+                        [
+                            (
+                                r["listener_id"], r["asset_id"], r["market"], r["timestamp"],
+                                r["price"], r["size"], r["side"], r["fee_rate_bps"], r["raw_payload"],
+                                r["platform"]
+                            )
+                            for r in buffer
+                        ]
+                    )
+                else:
+                    await conn.executemany(
+                        """
+                        INSERT INTO trades (
+                            listener_id, asset_id, market, timestamp, price, size, side, fee_rate_bps, raw_payload
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        """,
+                        [
+                            (
+                                r["listener_id"], r["asset_id"], r["market"], r["timestamp"],
+                                r["price"], r["size"], r["side"], r["fee_rate_bps"], r["raw_payload"]
+                            )
+                            for r in buffer
+                        ]
+                    )
             self._logger.debug("flushed_trades", count=len(buffer))
         except Exception as e:
             error_str = str(e)
             if "foreign key constraint" in error_str:
                 self._logger.warning("flush_trades_fk_violation", dropped=len(buffer))
+            elif "platform" in error_str and self._schema_has_platform:
+                self._logger.warning("platform_column_missing_trades", msg="Retrying without platform")
+                self._schema_has_platform = False
+                self._trade_buffer = buffer + self._trade_buffer
+                await self._flush_trades()
             else:
                 self._logger.error("flush_trades_failed", error=error_str)
                 self._trade_buffer = buffer + self._trade_buffer

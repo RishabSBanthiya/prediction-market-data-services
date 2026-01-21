@@ -15,12 +15,24 @@ async def main():
 
     logger.info("application_starting", db_mode=config.db_mode)
 
+    # Initialize Kalshi authenticator if credentials provided
+    kalshi_auth = None
+    if config.kalshi_api_key and (config.kalshi_private_key or config.kalshi_private_key_path):
+        from services.kalshi_auth import KalshiAuthenticator
+        kalshi_auth = KalshiAuthenticator(
+            api_key=config.kalshi_api_key,
+            private_key_path=config.kalshi_private_key_path,
+            private_key_pem=config.kalshi_private_key,
+        )
+        logger.info("kalshi_auth_initialized")
+
     if config.db_mode == "postgres":
         from services.config_loader import PostgresConfigLoader
         config_loader = PostgresConfigLoader(config.postgres_dsn)
         factory = ListenerFactory(
             logger_factory=logger_factory,
             postgres_dsn=config.postgres_dsn,
+            kalshi_authenticator=kalshi_auth,
         )
     else:
         from supabase import create_client
@@ -29,6 +41,7 @@ async def main():
         factory = ListenerFactory(
             logger_factory=logger_factory,
             supabase_client=supabase,
+            kalshi_authenticator=kalshi_auth,
         )
 
     manager = ListenerManager(factory, config_loader, logger)

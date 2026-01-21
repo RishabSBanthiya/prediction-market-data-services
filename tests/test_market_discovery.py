@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import pytest
 
-from services.market_discovery import PolymarketDiscoveryService
+from services.polymarket_discovery import PolymarketDiscoveryService
 from utils.logger import LoggerFactory
 
 

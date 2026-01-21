@@ -1,0 +1,32 @@
+services:
+  - type: worker
+    name: prediction-market-data-service
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python src/main.py
+    region: oregon  # or your preferred region
+    plan: starter  # or standard for production
+    envVars:
+      # Database mode: "supabase" or "postgres"
+      - key: DB_MODE
+        value: supabase
+
+      # Supabase credentials (set in Render dashboard for security)
+      - key: SUPABASE_URL
+        sync: false  # Set manually in dashboard
+      - key: SUPABASE_KEY
+        sync: false  # Set manually in dashboard
+
+      # Kalshi API credentials (set in Render dashboard for security)
+      - key: KALSHI_API_KEY
+        sync: false  # Set manually in dashboard
+      - key: KALSHI_PRIVATE_KEY
+        sync: false  # Set manually in dashboard (full PEM content with \n)
+
+      # Logging
+      - key: LOG_LEVEL
+        value: INFO
+
+      # Python settings
+      - key: PYTHONUNBUFFERED
+        value: "1"

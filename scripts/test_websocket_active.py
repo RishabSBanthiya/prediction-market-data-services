@@ -6,8 +6,8 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from services.market_discovery import PolymarketDiscoveryService
-from services.websocket_client import PolymarketWebSocketClient
+from services.polymarket_discovery import PolymarketDiscoveryService
+from services.polymarket_websocket_client import PolymarketWebSocketClient
 from utils.logger import LoggerFactory
 
 

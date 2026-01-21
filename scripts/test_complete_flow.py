@@ -12,8 +12,8 @@ from supabase import create_client
 from config import Config
 from core.listener import Listener
 from core.events import OrderbookEvent, TradeEvent
-from services.market_discovery import PolymarketDiscoveryService
-from services.websocket_client import PolymarketWebSocketClient
+from services.polymarket_discovery import PolymarketDiscoveryService
+from services.polymarket_websocket_client import PolymarketWebSocketClient
 from services.supabase_writer import SupabaseWriter
 from utils.logger import LoggerFactory
 from models import ListenerConfig, ListenerFilters, Market
