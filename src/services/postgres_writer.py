@@ -23,6 +23,7 @@ class PostgresWriter(IDataWriter):
         self._flush_task: Optional[asyncio.Task] = None
         self._running = False
         self._schema_has_platform: bool = True  # Will be set to False if column missing
+        self._known_markets: set[str] = set()  # Track markets written to DB
 
     async def start(self) -> None:
         self._pool = await asyncpg.create_pool(self._dsn, min_size=2, max_size=10)
@@ -40,6 +41,13 @@ class PostgresWriter(IDataWriter):
         self._logger.info("postgres_writer_stopped")
 
     async def write_orderbook(self, snapshot: OrderbookSnapshot) -> None:
+        # Skip if market not yet written to DB
+        if snapshot.asset_id not in self._known_markets:
+            self._logger.debug(
+                "orderbook_skipped_unknown_market",
+                asset_id=snapshot.asset_id[:20] if snapshot.asset_id else "none",
+            )
+            return
         record = {
             "listener_id": self._listener_id,
             "asset_id": snapshot.asset_id,
@@ -64,6 +72,13 @@ class PostgresWriter(IDataWriter):
             await self._flush_orderbooks()
 
     async def write_trade(self, trade: Trade) -> None:
+        # Skip if market not yet written to DB
+        if trade.asset_id not in self._known_markets:
+            self._logger.debug(
+                "trade_skipped_unknown_market",
+                asset_id=trade.asset_id[:20] if trade.asset_id else "none",
+            )
+            return
         self._trade_buffer.append({
             "listener_id": self._listener_id,
             "asset_id": trade.asset_id,
@@ -188,6 +203,8 @@ class PostgresWriter(IDataWriter):
                         market.is_closed,
                         market.state.value if market.state else None,
                     )
+            # Track this market as known so orderbooks/trades can be written
+            self._known_markets.add(market.token_id)
         except Exception as e:
             error_str = str(e)
             if "platform" in error_str and self._schema_has_platform:

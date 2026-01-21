@@ -20,6 +20,7 @@ class SupabaseWriter(IDataWriter):
         self._running = False
         self._schema_has_forward_fill: bool = True  # Will be set to False if columns missing
         self._schema_has_platform: bool = True  # Will be set to False if column missing
+        self._known_markets: set[str] = set()  # Track markets written to DB
 
     async def start(self) -> None:
         self._running = True
@@ -32,6 +33,13 @@ class SupabaseWriter(IDataWriter):
         await self.flush()
 
     async def write_orderbook(self, snapshot: OrderbookSnapshot) -> None:
+        # Skip if market not yet written to DB
+        if snapshot.asset_id not in self._known_markets:
+            self._logger.debug(
+                "orderbook_skipped_unknown_market",
+                asset_id=snapshot.asset_id[:20] if snapshot.asset_id else "none",
+            )
+            return
         record = {
             "listener_id": self._listener_id,
             "asset_id": snapshot.asset_id,
@@ -60,6 +68,13 @@ class SupabaseWriter(IDataWriter):
             await self._flush_orderbooks()
 
     async def write_trade(self, trade: Trade) -> None:
+        # Skip if market not yet written to DB
+        if trade.asset_id not in self._known_markets:
+            self._logger.debug(
+                "trade_skipped_unknown_market",
+                asset_id=trade.asset_id[:20] if trade.asset_id else "none",
+            )
+            return
         record = {
             "listener_id": self._listener_id,
             "asset_id": trade.asset_id,
@@ -106,6 +121,8 @@ class SupabaseWriter(IDataWriter):
             self._client.table("markets").upsert(
                 data, on_conflict="listener_id,token_id"
             ).execute()
+            # Track this market as known so orderbooks/trades can be written
+            self._known_markets.add(market.token_id)
         except Exception as e:
             error_str = str(e)
             if "platform" in error_str and self._schema_has_platform:
@@ -115,6 +132,7 @@ class SupabaseWriter(IDataWriter):
                     self._client.table("markets").upsert(
                         data, on_conflict="listener_id,token_id"
                     ).execute()
+                    self._known_markets.add(market.token_id)
                     return
                 except Exception as retry_error:
                     self._logger.error("write_market_retry_failed", error=str(retry_error))
@@ -168,15 +186,32 @@ class SupabaseWriter(IDataWriter):
                 for record in buffer:
                     record.pop("platform", None)
                 needs_retry = True
+
+            # Handle FK constraint violations - drop records for unknown markets
+            if "foreign key constraint" in error_str.lower() or "23503" in error_str:
+                self._logger.warning(
+                    "orderbook_fk_violation",
+                    msg="Dropping records for unknown markets",
+                    count=len(buffer),
+                )
+                # Don't retry - these records reference markets that don't exist
+                return
+
             if needs_retry:
                 try:
                     self._client.table("orderbook_snapshots").insert(buffer).execute()
                     self._logger.debug("flushed_orderbooks", count=len(buffer))
                     return
                 except Exception as retry_error:
-                    self._logger.error("flush_orderbooks_retry_failed", error=str(retry_error))
+                    retry_str = str(retry_error)
+                    # If retry also fails with FK violation, just drop the records
+                    if "foreign key constraint" in retry_str.lower() or "23503" in retry_str:
+                        self._logger.warning("orderbook_fk_violation_on_retry", count=len(buffer))
+                        return
+                    self._logger.error("flush_orderbooks_retry_failed", error=retry_str)
             else:
                 self._logger.error("flush_orderbooks_failed", error=error_str)
+            # Only re-add buffer for non-FK errors (transient failures)
             self._orderbook_buffer = buffer + self._orderbook_buffer
 
     async def _flush_trades(self) -> None:
@@ -189,6 +224,16 @@ class SupabaseWriter(IDataWriter):
             self._logger.debug("flushed_trades", count=len(buffer))
         except Exception as e:
             error_str = str(e)
+
+            # Handle FK constraint violations - drop records for unknown markets
+            if "foreign key constraint" in error_str.lower() or "23503" in error_str:
+                self._logger.warning(
+                    "trades_fk_violation",
+                    msg="Dropping records for unknown markets",
+                    count=len(buffer),
+                )
+                return
+
             if "platform" in error_str and self._schema_has_platform:
                 self._logger.warning("platform_column_missing_trades", msg="Retrying without platform column")
                 self._schema_has_platform = False
@@ -199,7 +244,12 @@ class SupabaseWriter(IDataWriter):
                     self._logger.debug("flushed_trades", count=len(buffer))
                     return
                 except Exception as retry_error:
-                    self._logger.error("flush_trades_retry_failed", error=str(retry_error))
+                    retry_str = str(retry_error)
+                    if "foreign key constraint" in retry_str.lower() or "23503" in retry_str:
+                        self._logger.warning("trades_fk_violation_on_retry", count=len(buffer))
+                        return
+                    self._logger.error("flush_trades_retry_failed", error=retry_str)
             else:
                 self._logger.error("flush_trades_failed", error=error_str)
+            # Only re-add buffer for non-FK errors (transient failures)
             self._trade_buffer = buffer + self._trade_buffer
