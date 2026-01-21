@@ -7,6 +7,10 @@ Kalshi requires RSA key-based authentication for API access. Each request must i
 - KALSHI-ACCESS-SIGNATURE: RSA-PSS signature of the request
 
 The signature is computed over: timestamp + method + path + body
+
+Environment variable formats supported for KALSHI_PRIVATE_KEY:
+1. PEM content with \\n for newlines: "-----BEGIN RSA PRIVATE KEY-----\\nMIIE...\\n-----END RSA PRIVATE KEY-----"
+2. Base64-encoded PEM (prefix with "base64:"): "base64:LS0tLS1CRUdJTi..."
 """
 import base64
 import time
@@ -45,18 +49,43 @@ class KalshiAuthenticator:
     ):
         """Load RSA private key from file or direct PEM content."""
         if pem_content:
-            # Handle escaped newlines in environment variables
-            pem_bytes = pem_content.replace("\\n", "\n").encode("utf-8")
+            pem_str = pem_content.strip()
+
+            # Check if base64-encoded (recommended for env vars)
+            if pem_str.startswith("base64:"):
+                pem_bytes = base64.b64decode(pem_str[7:])
+            else:
+                # Handle various escape formats from environment variables
+                # Replace literal \n with actual newlines
+                pem_str = pem_str.replace("\\n", "\n")
+                # Handle double-escaped newlines (\\\\n -> \n)
+                pem_str = pem_str.replace("\\\\n", "\n")
+                # Strip any surrounding whitespace/quotes
+                pem_str = pem_str.strip().strip('"').strip("'")
+                # Ensure proper line endings
+                pem_str = pem_str.replace("\r\n", "\n").replace("\r", "\n")
+                pem_bytes = pem_str.encode("utf-8")
         elif path:
             pem_bytes = Path(path).read_bytes()
         else:
             raise ValueError("Either private_key_path or private_key_pem required")
 
-        return serialization.load_pem_private_key(
-            pem_bytes,
-            password=None,
-            backend=default_backend(),
-        )
+        try:
+            return serialization.load_pem_private_key(
+                pem_bytes,
+                password=None,
+                backend=default_backend(),
+            )
+        except Exception as e:
+            # Log helpful debug info (first/last lines only, not the key itself)
+            lines = pem_bytes.decode("utf-8", errors="replace").split("\n")
+            first_line = lines[0] if lines else "empty"
+            last_line = lines[-1] if lines else "empty"
+            raise ValueError(
+                f"Failed to load PEM key. First line: '{first_line}', "
+                f"Last line: '{last_line}', Total lines: {len(lines)}. "
+                f"Original error: {e}"
+            )
 
     def _sign_message(self, message: str) -> str:
         """Sign a message with RSA-PSS and return base64-encoded signature."""
