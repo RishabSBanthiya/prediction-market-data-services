@@ -1,6 +1,11 @@
 .env
 .env.local
 .env.prod
+
+# Private keys - NEVER commit these
+*.pem
+*.key
+credentials.json
 __pycache__/
 *.pyc
 .pytest_cache/
