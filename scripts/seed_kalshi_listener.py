@@ -25,11 +25,11 @@ def seed_kalshi_listener_supabase():
     supabase = create_client(config.supabase_url, config.supabase_key)
 
     listener_data = {
-        "name": "kalshi-elections",
+        "name": "kalshi-crypto",
         "description": "Tracks Kalshi 15m btc markets",
         "platform": "kalshi",
         "filters": {
-            "series_tickers": ["kxbtc15m"],
+            "series_tickers": ["KXBTC15M"],
             "status": "open",
         },
         "discovery_interval_seconds": 60,
@@ -57,11 +57,11 @@ def seed_kalshi_listener_postgres():
     cur = conn.cursor()
 
     listener_data = {
-        "name": "kalshi-elections",
-        "description": "Tracks Kalshi election prediction markets",
+        "name": "kalshi-crypto",
+        "description": "Tracks Kalshi 15m btc markets",
         "platform": "kalshi",
         "filters": {
-            "series_tickers": ["KXELECTION"],
+            "series_tickers": ["KXBTC15M"],
             "status": "open",
         },
         "discovery_interval_seconds": 60,
@@ -128,3 +128,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    

@@ -421,11 +421,25 @@ class KalshiWebSocketClient(IWebSocketClient):
 
     def _get_timestamp_ms(self, data: dict) -> int:
         """Extract timestamp from message, converting to milliseconds if needed."""
-        # Try ts field (Kalshi uses seconds)
+        from datetime import datetime
+
+        # Try ts field (Kalshi may send seconds as number or ISO string)
         ts = data.get("ts") or data.get("msg", {}).get("ts")
         if ts:
-            # Kalshi timestamps are in seconds
-            return int(ts * 1000)
+            if isinstance(ts, (int, float)):
+                # Numeric timestamp in seconds
+                return int(ts * 1000)
+            elif isinstance(ts, str):
+                # ISO 8601 timestamp string (e.g., "2026-01-21T03:06:06.109517Z")
+                try:
+                    # Handle both with and without microseconds
+                    if "." in ts:
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    else:
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    return int(dt.timestamp() * 1000)
+                except (ValueError, AttributeError):
+                    pass
         # Fallback to current time
         return int(time.time() * 1000)
 
