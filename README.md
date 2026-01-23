@@ -1,14 +1,22 @@
-# Polymarket Orderbook Liquidity Service
+# Prediction Market Orderbook Liquidity Service
 
-A Python service that captures real-time orderbook data from Polymarket prediction markets and stores it in Supabase for backtesting.
+A Python service that captures real-time orderbook data from prediction markets (Polymarket and Kalshi) and stores it in Supabase/PostgreSQL for backtesting.
+
+## Supported Platforms
+
+| Platform | Market Discovery | WebSocket | Auth Required |
+|----------|-----------------|-----------|---------------|
+| Polymarket | Gamma API | CLOB WebSocket | No |
+| Kalshi | REST API | WebSocket | Yes (RSA) |
 
 ## Features
 
-- **Real-time orderbook capture** via WebSocket connection to Polymarket CLOB
+- **Multi-platform support** - Polymarket and Kalshi with unified data model
+- **Real-time orderbook capture** via WebSocket connections
 - **Continuous data stream** using forward-fill mechanism (configurable interval, default 100ms)
 - **Multi-listener architecture** - run multiple independent listeners for different market categories
-- **Automatic market discovery** - finds markets based on filters (series, tags, slugs)
-- **Supabase storage** - all data persisted for backtesting and analysis
+- **Automatic market discovery** - finds markets based on platform-specific filters
+- **Flexible storage** - Supabase or PostgreSQL for backtesting and analysis
 
 ## Architecture
 
@@ -95,14 +103,17 @@ cp .env.example .env
 
 ### 3. Database Setup
 
-Run the migration in your Supabase SQL editor:
+Run the migrations in your Supabase SQL editor or via psql:
 
 ```bash
 # Apply schema
 psql $DATABASE_URL -f migrations/001_initial_schema.sql
+psql $DATABASE_URL -f migrations/002_add_foreign_keys.sql
+psql $DATABASE_URL -f migrations/003_add_platform_column.sql
+psql $DATABASE_URL -f migrations/004_fix_markets_unique_constraint.sql
 ```
 
-Or copy the contents of `migrations/001_initial_schema.sql` into the Supabase SQL editor.
+Or copy the contents into the Supabase SQL editor.
 
 ### 4. Create a Listener
 
@@ -306,24 +317,29 @@ src/
 ├── main.py                      # Entry point
 ├── config.py                    # Environment configuration
 ├── core/
-│   ├── interfaces.py            # Abstract base classes
-│   ├── events.py                # Event types for queue
-│   ├── listener.py              # Core Listener class
-│   ├── listener_factory.py      # Creates Listener instances
-│   └── listener_manager.py      # Manages multiple listeners
+│   ├── interfaces.py            # Abstract base classes (IWebSocketClient, IDataWriter, etc.)
+│   ├── events.py                # Event types (OrderbookEvent, TradeEvent, MarketDiscoveredEvent)
+│   ├── listener.py              # Core Listener class - orchestrates discovery, websocket, forward-fill
+│   ├── listener_factory.py      # Creates Listener instances with platform routing
+│   └── listener_manager.py      # Manages multiple listeners, loads configs from DB
 ├── services/
-│   ├── market_discovery.py      # Gamma API client
-│   ├── websocket_client.py      # WebSocket handler
-│   ├── state_forward_filler.py  # Continuous stream generator
-│   ├── supabase_writer.py       # Database writer
-│   └── config_loader.py         # Loads listener configs
+│   ├── polymarket_discovery.py      # PolymarketDiscoveryService - Gamma API client
+│   ├── polymarket_websocket_client.py # PolymarketWebSocketClient - CLOB WebSocket handler
+│   ├── kalshi_auth.py               # KalshiAuthenticator - RSA-PSS authentication
+│   ├── kalshi_discovery.py          # KalshiDiscoveryService - REST API client
+│   ├── kalshi_websocket_client.py   # KalshiWebSocketClient - WebSocket with orderbook state
+│   ├── state_forward_filler.py      # StateForwardFiller - continuous stream generator
+│   ├── supabase_writer.py           # SupabaseWriter - batched database writes
+│   ├── postgres_writer.py           # PostgresWriter - batched PostgreSQL writes
+│   └── config_loader.py             # SupabaseConfigLoader/PostgresConfigLoader
 ├── models/
-│   ├── listener.py              # ListenerConfig, ListenerFilters
-│   ├── market.py                # Market model
+│   ├── listener.py              # ListenerConfig, ListenerFilters, Platform enum
+│   ├── kalshi_filters.py        # KalshiListenerFilters
+│   ├── market.py                # Market model with state tracking
 │   ├── orderbook.py             # OrderbookSnapshot, OrderLevel
 │   └── trade.py                 # Trade model
 └── utils/
-    └── logger.py                # Structured logging
+    └── logger.py                # Structured JSON logging
 ```
 
 ## Database Schema
@@ -429,6 +445,81 @@ If you see errors about missing columns (`is_forward_filled`, `source_timestamp`
   - `/events` - List events with markets
   - `/markets` - List individual markets
   - `/tags` - Available category tags
+
+---
+
+## Kalshi Integration
+
+### Setting Up Kalshi Credentials
+
+1. Log in to [Kalshi](https://kalshi.com)
+2. Go to **Profile Settings** > **API Keys**
+3. Click **Create New API Key**
+4. Download the private key file (RSA PEM format)
+5. Save the Key ID shown on screen
+
+### Kalshi Environment Variables
+
+Add to your `.env` file:
+```env
+KALSHI_API_KEY=your-key-id-here
+KALSHI_PRIVATE_KEY_PATH=/path/to/kalshi-private-key.pem
+
+# Or provide key content directly (useful for Docker/cloud):
+# KALSHI_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
+```
+
+### KalshiListenerFilters
+
+```python
+series_tickers: list[str]      # e.g., ["KXELECTION"]
+event_tickers: list[str]       # Specific event tickers
+market_tickers: list[str]      # Specific market tickers
+status: str = "open"           # open, closed, settled
+min_volume: float              # Minimum volume threshold
+min_open_interest: float       # Minimum open interest
+title_contains: str            # Text search in title
+```
+
+### Kalshi Series Tickers
+
+Common series:
+- Elections: `KXELECTION`
+- Economics: `KXECON`
+- Finance: `KXFINANCE`
+- Weather: `KXWEATHER`
+
+### Running Kalshi Listener
+
+```bash
+# Seed a Kalshi listener
+python scripts/seed_kalshi_listener.py
+
+# Test Kalshi connection
+python scripts/test_kalshi_live.py
+
+# Start service (handles both Polymarket and Kalshi)
+python src/main.py
+```
+
+### Kalshi vs Polymarket Differences
+
+| Aspect | Polymarket | Kalshi |
+|--------|-----------|--------|
+| Market ID | `token_id` (per outcome) | `ticker` (per market) |
+| Orderbook | Direct bids/asks | Snapshot + delta (yes/no sides) |
+| Prices | Decimals (0.0-1.0) | Cents (0-100), normalized to decimals |
+| Timestamps | Milliseconds | Seconds, converted to milliseconds |
+| WS Auth | None | RSA-PSS required |
+
+### Platform Column
+
+All tables include a `platform` column (`polymarket` or `kalshi`) for filtering:
+
+```sql
+SELECT * FROM orderbook_snapshots WHERE platform = 'kalshi';
+SELECT * FROM trades WHERE platform = 'polymarket';
+```
 
 ## License
 

@@ -125,6 +125,18 @@ class SupabaseWriter(IDataWriter):
             self._known_markets.add(market.token_id)
         except Exception as e:
             error_str = str(e)
+
+            # Handle constraint violation on condition_id (indicates missing migration)
+            if "condition_id" in error_str and "23505" in error_str:
+                self._logger.error(
+                    "write_market_constraint_error",
+                    error="Database has UNIQUE(listener_id, condition_id) constraint. "
+                          "Run migration: ALTER TABLE markets DROP CONSTRAINT IF EXISTS markets_listener_id_condition_id_key;",
+                    token_id=market.token_id[:20] if market.token_id else None,
+                    outcome=market.outcome,
+                )
+                return
+
             if "platform" in error_str and self._schema_has_platform:
                 self._schema_has_platform = False
                 data.pop("platform", None)
