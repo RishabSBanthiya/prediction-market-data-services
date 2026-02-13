@@ -16,3 +16,4 @@ dist/
 *.egg-info/
 .venv/
 venv/
+backtest_results/
