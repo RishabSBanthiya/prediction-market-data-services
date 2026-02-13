@@ -289,3 +289,124 @@ All tables now include a `platform` column (`polymarket` or `kalshi`) for filter
 SELECT * FROM orderbook_snapshots WHERE platform = 'kalshi';
 SELECT * FROM trades WHERE platform = 'polymarket';
 ```
+
+---
+
+## Backtesting Framework
+
+Event-driven backtesting engine for simulating trading strategies against historical orderbook and trade data from Polymarket and Kalshi.
+
+### Quick Start
+
+```python
+from backtest import BacktestEngine, BacktestConfig, Strategy
+
+config = BacktestConfig(
+    postgres_dsn="postgresql://...",
+    listener_id="my-listener",
+    start_time_ms=...,
+    end_time_ms=...,
+)
+engine = BacktestEngine(config)
+result = await engine.run(my_strategy)
+print(result.summary())
+```
+
+### Backtest Structure
+
+```
+src/backtest/
+├── __init__.py                              # Top-level exports (lazy imports for heavy deps)
+├── core/
+│   ├── interfaces.py                        # BacktestEvent, BacktestDataset, IDataLoader, IExecutionEngine
+│   ├── strategy.py                          # Strategy ABC, BacktestContext
+│   └── backtest_engine.py                   # BacktestEngine — main event loop orchestrator
+├── models/
+│   ├── order.py                             # Order, Fill, OrderSide, OrderType, OrderStatus, TimeInForce, FillReason, OrderRejectionReason
+│   ├── position.py                          # Position, MarketPosition
+│   ├── portfolio.py                         # Portfolio, PortfolioView (read-only ABC)
+│   ├── market_pair.py                       # MarketPair, MarketPairRegistry (yes/no token linking)
+│   └── config.py                            # BacktestConfig, FeeSchedule, BacktestResult
+├── services/
+│   ├── data_loader.py                       # PostgresDataLoader — asyncpg, listener_id resolution
+│   ├── execution_engine.py                  # ExecutionEngine — L2 walk, queue integration, FOK/IOC/GTC
+│   ├── queue_simulator.py                   # QueueSimulator — queue position tracking, probabilistic fills
+│   ├── metrics.py                           # MetricsCollector — Sharpe, drawdown, trade pairing, equity curve
+│   └── report.py                            # ReportGenerator — text summary, equity/drawdown plots, CSV
+└── strategies/
+    └── examples/
+        └── market_maker.py                  # SimpleMarketMaker — inventory-adjusted spread, position limits
+
+scripts/examples/
+└── run_backtest.py                          # CLI with argparse
+
+tests/backtest/
+├── conftest.py                              # Shared fixtures
+├── test_order_models.py                     # 27 tests
+├── test_position_models.py                  # 22 tests
+├── test_portfolio.py                        # 18 tests
+├── test_config_models.py                    # 26 tests
+├── test_market_pair.py                      # 20 tests
+├── test_strategy.py                         # 13 tests
+├── test_execution_engine.py                 # 26 tests
+├── test_queue_simulator.py                  # 15 tests
+├── test_metrics.py                          # 17 tests
+└── test_integration.py                      # 9 integration tests
+```
+
+### Key Concepts
+
+**Event Loop**: Merges orderbook snapshots and trades in timestamp order (trades first at equal timestamps to avoid lookahead bias). The engine processes each event through the execution engine, then dispatches to the strategy.
+
+**Execution Model**: Market orders walk the L2 orderbook. Limit orders either fill immediately (marketable) or enter a queue simulator that tracks position based on volume traded at the price level. Supports GTC, IOC, and FOK time-in-force.
+
+**MarketPair**: Links yes/no tokens under a shared `condition_id`. The execution engine converts SELL Yes → BUY No at `1 - price` when appropriate.
+
+**Lazy Imports**: The `__init__.py` files use `__getattr__()` to defer imports of asyncpg, numpy, and matplotlib. This allows `from backtest import Order` without installing heavy dependencies.
+
+### Running Backtest Tests
+
+```bash
+# All backtest tests (216 total)
+python3 -m pytest tests/backtest/ -v
+
+# Unit tests only
+python3 -m pytest tests/backtest/ -v -m "not integration"
+
+# Integration tests only
+python3 -m pytest tests/backtest/ -v -m integration
+```
+
+### Writing a Strategy
+
+Subclass `Strategy` and implement `on_orderbook()`:
+
+```python
+from backtest import Strategy, Order, OrderSide, OrderType, TimeInForce
+
+class MyStrategy(Strategy):
+    def __init__(self):
+        super().__init__(name="MyStrategy")
+
+    def on_orderbook(self, snapshot, is_forward_filled):
+        if is_forward_filled or not snapshot.mid_price:
+            return
+        # Submit orders via self.submit_order(order)
+        # Cancel via self.cancel_order(order_id)
+        # Check portfolio via self.portfolio (read-only PortfolioView)
+
+    def on_fill(self, fill):
+        pass  # Called when your order is filled
+
+    def on_trade(self, trade):
+        pass  # Called for all market tape trades
+```
+
+### Backtest Dependencies
+
+Defined in `pyproject.toml` under `[project.optional-dependencies]`:
+```
+backtest = [asyncpg, pydantic, structlog, numpy, scipy, matplotlib, tqdm]
+```
+
+Install with: `pip install -e ".[backtest]"`

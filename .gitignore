@@ -5,6 +5,7 @@
 # Private keys - NEVER commit these
 *.pem
 *.key
+
 credentials.json
 __pycache__/
 *.pyc

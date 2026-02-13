@@ -31,6 +31,13 @@ viz = [
     "jupyter>=1.0.0",
     "nbconvert>=7.0.0",
 ]
+backtest = [
+    "asyncpg>=0.29.0",
+    "numpy>=1.26.0",
+    "matplotlib>=3.8.0",
+    "scipy>=1.11.0",
+    "tqdm>=4.66.0",  # Progress bars for backtest runs
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -42,3 +49,6 @@ packages = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: end-to-end integration tests for the backtest pipeline",
+]
