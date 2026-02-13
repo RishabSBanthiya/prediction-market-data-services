@@ -285,11 +285,11 @@ class PostgresDataLoader(IDataLoader):
                 bids = [OrderLevel(**level) for level in (bids_data or [])]
                 asks = [OrderLevel(**level) for level in (asks_data or [])]
 
-                # Create snapshot
+                # Create snapshot (cast UUID fields to str for Pydantic)
                 snapshot = OrderbookSnapshot(
-                    listener_id=row["listener_id"],
-                    asset_id=row["asset_id"],
-                    market=row["market"],
+                    listener_id=str(row["listener_id"]),
+                    asset_id=str(row["asset_id"]),
+                    market=str(row["market"]) if row["market"] else "",
                     timestamp=row["timestamp"],
                     bids=bids,
                     asks=asks,
@@ -412,15 +412,15 @@ class PostgresDataLoader(IDataLoader):
         for idx, row in enumerate(rows):
             try:
                 trade = Trade(
-                    listener_id=row["listener_id"],
-                    asset_id=row["asset_id"],
-                    market=row["market"],
+                    listener_id=str(row["listener_id"]),
+                    asset_id=str(row["asset_id"]),
+                    market=str(row["market"]) if row["market"] else "",
                     timestamp=row["timestamp"],
                     price=row["price"],
                     size=row["size"],
                     side=row["side"],
                     fee_rate_bps=row["fee_rate_bps"],
-                    raw_payload=None,  # Not stored in DB
+                    raw_payload={},  # Not stored in DB
                 )
                 trades.append(trade)
 
@@ -518,14 +518,14 @@ class PostgresDataLoader(IDataLoader):
         for row in rows:
             try:
                 market = Market(
-                    listener_id=row["listener_id"],
-                    condition_id=row["condition_id"],
-                    token_id=row["token_id"],
-                    market_slug=row["market_slug"],
-                    question=row["question"],
-                    outcome=row["outcome"],
+                    listener_id=str(row["listener_id"]),
+                    condition_id=str(row["condition_id"]) if row["condition_id"] else "",
+                    token_id=str(row["token_id"]),
+                    market_slug=row["market_slug"] or "",
+                    question=row["question"] or "",
+                    outcome=row["outcome"] or "",
                     outcome_index=row["outcome_index"],
-                    event_id=row["event_id"],
+                    event_id=str(row["event_id"]) if row["event_id"] else None,
                     volume=row["volume"],
                     liquidity=row["liquidity"],
                     is_active=row["is_active"],

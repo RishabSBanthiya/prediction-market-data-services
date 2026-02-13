@@ -175,7 +175,7 @@ class BacktestResult(BaseModel):
         ax1.set_title(
             f"Backtest Results: {self.strategy_name}\n"
             f"Return: {self.total_return:+.2%} | Max DD: {self.max_drawdown:.2%} | "
-            f"Sharpe: {self.sharpe_ratio:.2f if self.sharpe_ratio is not None else 'N/A'}"
+            f"Sharpe: {f'{self.sharpe_ratio:.2f}' if self.sharpe_ratio is not None else 'N/A'}"
         )
         ax1.legend(loc="upper left")
         ax1.grid(True, alpha=0.3)
