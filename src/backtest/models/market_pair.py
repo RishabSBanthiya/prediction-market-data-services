@@ -103,6 +103,23 @@ class MarketPairRegistry:
             condition_groups[condition_id].append(market)
 
         for condition_id, group_markets in condition_groups.items():
+            if len(group_markets) == 1:
+                # Single-ticker market (e.g., Kalshi): the orderbook already
+                # has yes (bids) and no (asks) sides. Create a self-pair so
+                # the execution engine allows selling without a position
+                # (selling yes = buying no, which is native to the orderbook).
+                market = group_markets[0]
+                platform = getattr(market, "platform", "kalshi")
+                pair = MarketPair(
+                    condition_id=condition_id,
+                    question=market.question or "",
+                    yes_token_id=market.token_id,
+                    no_token_id=market.token_id,
+                    platform=platform,
+                )
+                registry.register(pair)
+                continue
+
             if len(group_markets) != 2:
                 logger.warning(
                     "skipping_non_binary_market",

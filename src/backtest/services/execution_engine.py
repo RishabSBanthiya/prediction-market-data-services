@@ -164,8 +164,8 @@ class ExecutionEngine(IExecutionEngine):
                     pair = self._market_pairs.get_pair_for_token(order.asset_id)
                     if pair:
                         complement_token = pair.get_complement_token(order.asset_id)
-                        if complement_token:
-                            # SELL Yes → BUY No conversion
+                        if complement_token and complement_token != order.asset_id:
+                            # SELL Yes → BUY No conversion (Polymarket two-token pairs)
                             complement_price = pair.get_complement_price(order.price or Decimal("0.5"))
                             self._logger.info(
                                 "converting_sell_to_complement_buy",
@@ -177,6 +177,15 @@ class ExecutionEngine(IExecutionEngine):
                             order.side = OrderSide.BUY
                             order.asset_id = complement_token
                             order.price = complement_price
+                        elif complement_token == order.asset_id:
+                            # Self-pair (Kalshi single-ticker): the orderbook
+                            # natively supports both sides. Allow the sell to
+                            # proceed without position — it will match against
+                            # the ask side of the book.
+                            self._logger.info(
+                                "allowing_native_sell_on_single_ticker",
+                                asset=order.asset_id,
+                            )
                         else:
                             self._reject_order_insufficient_position(order, position_qty)
                             return order.order_id
