@@ -371,15 +371,19 @@ class ExecutionEngine(IExecutionEngine):
         Returns:
             List of open orders
         """
-        orders = [
-            o for o in self._orders.values()
-            if o.status in [OrderStatus.PENDING, OrderStatus.PARTIAL]
-        ]
-
         if asset_id:
-            orders = [o for o in orders if o.asset_id == asset_id]
+            order_ids = self._pending_by_asset.get(asset_id, set())
+            return [
+                self._orders[oid]
+                for oid in order_ids
+                if oid in self._orders
+                and self._orders[oid].status in (OrderStatus.PENDING, OrderStatus.PARTIAL)
+            ]
 
-        return orders
+        return [
+            o for o in self._orders.values()
+            if o.status in (OrderStatus.PENDING, OrderStatus.PARTIAL)
+        ]
 
     def get_order_status(self, order_id: str) -> OrderStatus:
         """
@@ -515,6 +519,14 @@ class ExecutionEngine(IExecutionEngine):
 
         return fills
 
+    @staticmethod
+    def _sorted_levels(levels: list, ascending: bool) -> list:
+        """Sort orderbook levels by price. Asks ascending, bids descending."""
+        try:
+            return sorted(levels, key=lambda l: float(l.price), reverse=not ascending)
+        except (ValueError, TypeError):
+            return levels
+
     def _execute_market_order(self, order: Order, snapshot: OrderbookSnapshot) -> list[Fill]:
         """
         Execute market order by walking orderbook levels.
@@ -536,6 +548,8 @@ class ExecutionEngine(IExecutionEngine):
             order.status = OrderStatus.REJECTED
             order.rejection_reason = OrderRejectionReason.NO_LIQUIDITY
             return []
+
+        levels = self._sorted_levels(levels, ascending=(order.side == OrderSide.BUY))
 
         # Walk levels and calculate fill
         remaining_qty = order.remaining_quantity
@@ -603,6 +617,8 @@ class ExecutionEngine(IExecutionEngine):
         levels = snapshot.asks if order.side == OrderSide.BUY else snapshot.bids
         if not levels:
             return []
+
+        levels = self._sorted_levels(levels, ascending=(order.side == OrderSide.BUY))
 
         remaining_qty = order.remaining_quantity
         total_cost = Decimal("0")
@@ -812,6 +828,8 @@ class ExecutionEngine(IExecutionEngine):
         levels = snapshot.asks if order.side == OrderSide.BUY else snapshot.bids
         if not levels:
             return False
+
+        levels = self._sorted_levels(levels, ascending=(order.side == OrderSide.BUY))
 
         available_qty = Decimal("0")
 
